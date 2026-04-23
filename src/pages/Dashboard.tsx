@@ -342,6 +342,61 @@ function aggregateByLevel(
     .sort((a, b) => a.promedio - b.promedio);
 }
 
+function getUniqueCatalogValues(
+  preguntas: PreguntaRow[],
+  field: "componente" | "subcomponente" | "tema"
+) {
+  const set = new Set<string>();
+
+  for (const pregunta of preguntas) {
+    const value = safeName(pregunta[field], "");
+    if (value) set.add(value);
+  }
+
+  return Array.from(set);
+}
+
+function getAsignaturasDetalle(preguntas: PreguntaRow[]) {
+  const map = new Map<string, { nombre: string; docentes: string[] }>();
+
+  for (const pregunta of preguntas) {
+    const asignatura = safeName(pregunta.nivel, "");
+    if (!asignatura) continue;
+
+    if (!map.has(asignatura)) {
+      map.set(asignatura, {
+        nombre: asignatura,
+        docentes: [],
+      });
+    }
+
+    const docente = safeName(pregunta.docente, "");
+    if (docente) {
+      const actual = map.get(asignatura)!;
+      if (!actual.docentes.includes(docente)) {
+        actual.docentes.push(docente);
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) =>
+    a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" })
+  );
+}
+
+function getDocentesGlobalDetalle(preguntas: PreguntaRow[]) {
+  const set = new Set<string>();
+
+  for (const pregunta of preguntas) {
+    const docente = safeName(pregunta.docente, "");
+    if (docente) set.add(docente);
+  }
+
+  return Array.from(set)
+    .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }))
+    .map((docente) => ({ docente }));
+}
+
 function HeaderActions({
   title,
   subtitle,
@@ -579,10 +634,10 @@ function ComponentBarChart({
 
                       <div className="w-full text-center space-y-1 px-1">
                         <p className="line-clamp-2 text-sm font-semibold text-[#002E45] break-words">
-                          {index + 1}. {item.nombre}
+                          {item.nombre}
                         </p>
                         <p className="text-xs text-slate-500">
-                          Resp.: {item.totalRespuestas}
+                          Respuestas: {item.totalRespuestas}
                         </p>
                         <p className="text-xs text-slate-500">
                           Aciertos: {item.totalAciertos}
@@ -1366,6 +1421,33 @@ export default function DashboardGerencial({
     return { total, correctas, incorrectas, nulas, conOpcion };
   }, [respuestas]);
 
+  const diagnosticoProcesamiento = useMemo(() => {
+    // 🔥 preguntas reales usadas en el examen (no banco)
+    const preguntasReales = new Set(
+      respuestas.map((r) => r.pregunta_id)
+    );
+
+    const totalPreguntas = preguntasReales.size;
+
+    // 🔥 estudiantes que realmente respondieron
+    const estudiantesConRespuestas = new Set(
+      respuestas.map((r) => r.intento_id)
+    );
+
+    const totalEstudiantesEvaluados = estudiantesConRespuestas.size;
+
+    const totalEsperado = totalEstudiantesEvaluados * totalPreguntas;
+
+    return {
+      totalPreguntas,
+      totalEstudiantesEvaluados,
+      totalEsperado,
+      correctas: statsRespuestas.correctas,
+      incorrectas: statsRespuestas.incorrectas,
+      nulas: statsRespuestas.nulas, // 👈 ahora usamos el real
+    };
+  }, [respuestas, statsRespuestas]);
+
   const kpis = useMemo(() => {
     const calificaciones = intentos
       .map((i) => Number(i.calificacion_total))
@@ -1378,8 +1460,15 @@ export default function DashboardGerencial({
     const totalAciertos = respuestas.filter((r) => r.es_correcta === true).length;
     const aciertoGlobal = percent(totalAciertos, respuestas.length);
 
+    const totalPreguntasUnicas =
+      new Set(
+        preguntas
+          .map((p) => p.numero_pregunta)
+          .filter((n) => typeof n === "number" && Number.isFinite(n))
+      ).size || version?.total_preguntas || 0;
+
     return {
-      totalPreguntas: preguntas.length || version?.total_preguntas || 0,
+      totalPreguntas: totalPreguntasUnicas,
       totalIntentos: intentos.length || version?.total_intentos || 0,
       promedioCalificacion,
       porcentajeAprobacion,
@@ -1902,7 +1991,7 @@ ${topCriticos
     <div className="min-h-screen bg-[#F8FAFC]">
       {!forcePublic && (
         <HeaderActions
-          title="Dashboard Gerencial de Evaluación"
+          title="Evaluación de Resultados de Aprendizaje - Carrera de Medicina"
           versionLabel={`v${version.version_number}`}
           subtitle={`${version.file_name || "Archivo sin nombre"} · ${new Date(
             version.created_at
@@ -1927,41 +2016,45 @@ ${topCriticos
               Diagnóstico de procesamiento
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 md:grid-cols-6 gap-4">
+
+          <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <p className="text-xs text-slate-500">Estudiantes evaluados</p>
               <p className="text-2xl font-bold text-[#002E45]">
-                {dashboardData.numero_estudiantes}
+                {diagnosticoProcesamiento.totalEstudiantesEvaluados}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Preguntas: {diagnosticoProcesamiento.totalPreguntas}
               </p>
             </div>
-            <div>
-              <p className="text-xs text-slate-500">Total inscritos</p>
-              <p className="text-2xl font-bold text-[#002E45]">
-                {dashboardData.total_inscritos}
-              </p>
-            </div>
+
             <div>
               <p className="text-xs text-slate-500">Correctas</p>
               <p className="text-2xl font-bold text-[#067647]">
-                {statsRespuestas.correctas}
+                {diagnosticoProcesamiento.correctas}/{diagnosticoProcesamiento.totalEsperado}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Respuestas correctas / totales
               </p>
             </div>
+
             <div>
               <p className="text-xs text-slate-500">Incorrectas</p>
               <p className="text-2xl font-bold text-[#B42318]">
-                {statsRespuestas.incorrectas}
+                {diagnosticoProcesamiento.incorrectas}/{diagnosticoProcesamiento.totalEsperado}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Respuestas incorrectas / totales
               </p>
             </div>
+
             <div>
               <p className="text-xs text-slate-500">Nulas</p>
               <p className="text-2xl font-bold text-[#B54708]">
-                {statsRespuestas.nulas}
+                {diagnosticoProcesamiento.nulas}/{diagnosticoProcesamiento.totalEsperado}
               </p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-500">Con opción enlazada</p>
-              <p className="text-2xl font-bold text-[#264763]">
-                {statsRespuestas.conOpcion}
+              <p className="text-xs text-slate-400 mt-1">
+                Respuestas nulas / totales
               </p>
             </div>
           </CardContent>
@@ -2162,40 +2255,6 @@ ${topCriticos
           maxItems={100}
         />
 
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-[#002E45]">
-              <ChevronRight className="h-5 w-5" />
-              Listado del nivel seleccionado
-            </CardTitle>
-          </CardHeader>
-
-          <CardContent className="space-y-3">
-            {filteredItems.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No hay datos con el filtro seleccionado.
-              </p>
-            ) : (
-              filteredItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => openStudentsByLevelItem(item)}
-                  className="w-full text-left flex items-center justify-between rounded-xl border p-3 bg-white hover:bg-slate-50"
-                >
-                  <div>
-                    <p className="font-medium text-[#002E45]">{item.nombre}</p>
-                    <p className="text-sm text-slate-500">
-                      Respuestas: {item.totalRespuestas} · Aciertos:{" "}
-                      {item.totalAciertos}
-                    </p>
-                  </div>
-
-                  <Badge>{item.promedio.toFixed(2)}%</Badge>
-                </button>
-              ))
-            )}
-          </CardContent>
-        </Card>
       </main>
 
       <SidebarPanel

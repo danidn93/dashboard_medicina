@@ -49,7 +49,7 @@ export function DashboardKPIs({ data }: DashboardKPIsProps) {
     );
   }, [data, docentesUnicos.length]);
 
-  const asignaturasEvaluadasActual = 13
+  const asignaturasEvaluadasActual = 16
 
   const totalAsignaturasEvaluadas = 52
 
@@ -95,6 +95,7 @@ export function DashboardKPIs({ data }: DashboardKPIsProps) {
             border-l-8
             border-[#FF6900]
           "
+          valueClassName="text-[#FF6900]"
         >
           <div className="mt-4 pt-3 border-t border-white/20 text-center">
             {typeof data.numero_estudiantes === "number" && (

@@ -7,7 +7,8 @@ interface KPIHeroProps {
   trend?: "up" | "down" | "neutral";
   description?: string;
   className?: string;
-  children?: React.ReactNode; // ✅ NUEVO
+  valueClassName?: string; // ✅ NUEVO
+  children?: React.ReactNode;
 }
 
 export function KPIHero({
@@ -16,6 +17,7 @@ export function KPIHero({
   trend = "neutral",
   description,
   className = "",
+  valueClassName = "",
   children,
 }: KPIHeroProps) {
   const TrendIcon =
@@ -40,10 +42,16 @@ export function KPIHero({
           </p>
 
           <div className="flex items-baseline gap-2">
-            <span className="text-6xl font-extrabold tracking-tight">
+            <span
+              className={`
+                text-6xl font-extrabold tracking-tight
+                ${valueClassName}
+              `}
+            >
               {value.toFixed(1)}
             </span>
-            <span className="text-3xl font-medium text-white/80">%</span>
+
+            <span className="text-3xl font-medium text-[#FF6900]">%</span>
           </div>
 
           {description && (
@@ -52,7 +60,6 @@ export function KPIHero({
             </p>
           )}
 
-          {/* ✅ CONTENIDO ADICIONAL (opcional) */}
           {children}
         </div>
 

@@ -16,7 +16,7 @@ export function DashboardHeader({ periodoDetectado, onSharePublic }: Props) {
             <h1 className="text-2xl font-bold text-[#002E45] leading-tight">
               Evaluación de Resultados de Aprendizaje
             </h1>
-            <p className="text-sm text-[#264763] mt-1">Carrera de Medicina</p>
+            <p className="text-2xl font-bold text-[#FF6900] mt-1">Carrera de Medicina</p>
           </div>
 
           {/* CENTRO (LOGO + BOTÓN PERFECTAMENTE CENTRADO) */}

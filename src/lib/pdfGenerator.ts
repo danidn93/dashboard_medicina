@@ -511,6 +511,40 @@ const normalizeDistribucion = (data: DistribucionData[]): DistribucionData[] => 
   });
 };
 
+const getPerformanceColorPdf = (value: number): [number, number, number] => {
+  const v = Math.max(0, Math.min(100, value));
+
+  if (v <= 30) {
+    const t = v / 30;
+    const r = Math.round(180 + (220 - 180) * t);
+    const g = Math.round(35 + (65 - 35) * t);
+    const b = Math.round(24 + (50 - 24) * t);
+    return [r, g, b];
+  }
+
+  if (v <= 50) {
+    const t = (v - 30) / 20;
+    const r = Math.round(220 + (247 - 220) * t);
+    const g = Math.round(65 + (144 - 65) * t);
+    const b = Math.round(50 + (9 - 50) * t);
+    return [r, g, b];
+  }
+
+  if (v <= 70) {
+    const t = (v - 50) / 20;
+    const r = Math.round(247 + (56 - 247) * t);
+    const g = Math.round(144 + (142 - 144) * t);
+    const b = Math.round(9 + (60 - 9) * t);
+    return [r, g, b];
+  }
+
+  const t = (v - 70) / 30;
+  const r = Math.round(56 + (6 - 56) * t);
+  const g = Math.round(142 + (118 - 142) * t);
+  const b = Math.round(60 + (71 - 60) * t);
+  return [r, g, b];
+};
+
 const drawCellTextCentered = (
   pdf: jsPDF,
   text: string,
@@ -705,12 +739,7 @@ const drawBarChart = (
     const x = chartX + leftAxisWidth + index * (barWidth + gap);
     const barY = baseY - barHeight;
 
-    const color =
-      value < 60
-        ? COLORES.rojo
-        : value < 70
-          ? COLORES.naranja
-          : COLORES.verde;
+    const color = getPerformanceColorPdf(value);
 
     pdf.setFillColor(232, 236, 242);
     pdf.roundedRect(x, baseY - chartHeight, barWidth, chartHeight, 2, 2, "F");

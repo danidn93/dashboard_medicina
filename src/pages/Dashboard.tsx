@@ -485,6 +485,50 @@ function ComponentBarChart({
     [items]
   );
 
+  function getPerformanceColor(value: number) {
+    const v = Math.max(0, Math.min(100, value));
+
+    // 0%   -> rojo fuerte
+    // 30%  -> rojo visible
+    // 50%  -> naranja/amarillo
+    // 70%  -> verde perceptible
+    // 100% -> verde fuerte
+
+    if (v <= 30) {
+      // rojo oscuro -> rojo
+      const t = v / 30;
+      const r = Math.round(180 + (220 - 180) * t);
+      const g = Math.round(35 + (65 - 35) * t);
+      const b = Math.round(24 + (50 - 24) * t);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    if (v <= 50) {
+      // rojo -> naranja
+      const t = (v - 30) / 20;
+      const r = Math.round(220 + (247 - 220) * t);
+      const g = Math.round(65 + (144 - 65) * t);
+      const b = Math.round(50 + (9 - 50) * t);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    if (v <= 70) {
+      // naranja -> verde medio
+      const t = (v - 50) / 20;
+      const r = Math.round(247 + (56 - 247) * t);
+      const g = Math.round(144 + (142 - 144) * t);
+      const b = Math.round(9 + (60 - 9) * t);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    // 70 a 100: verde medio -> verde fuerte
+    const t = (v - 70) / 30;
+    const r = Math.round(56 + (6 - 56) * t);
+    const g = Math.round(142 + (118 - 142) * t);
+    const b = Math.round(60 + (71 - 60) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
   return (
     <Card className="border-slate-200 shadow-sm">
       <CardHeader>
@@ -502,12 +546,7 @@ function ComponentBarChart({
             <div className="h-[420px] w-full">
               <div className="h-full flex items-end gap-4">
                 {sortedItems.map((item, index) => {
-                  const color =
-                    item.promedio < 60
-                      ? "#B42318"
-                      : item.promedio < 70
-                        ? "#F79009"
-                        : "#067647";
+                  const color = getPerformanceColor(item.promedio);
 
                   return (
                     <button
@@ -533,7 +572,7 @@ function ComponentBarChart({
                           className="relative w-full rounded-lg transition-all duration-300 group-hover:opacity-90"
                           style={{
                             height: `${item.promedio}%`,
-                            background: `linear-gradient(to top, ${color}, #ffffff)`,
+                            backgroundColor: color,
                           }}
                         />
                       </div>

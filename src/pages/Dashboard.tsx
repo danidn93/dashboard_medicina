@@ -498,13 +498,20 @@ function DistributionCard({
             />
           ))}
         </div>
-
+        
         <div className="space-y-3">
+          {/* Header */}
+          <div className="grid grid-cols-[1fr_140px_120px] items-center px-6 text-sm font-semibold text-slate-600">
+            <span>Rango</span>
+            <span className="text-right">Porcentaje</span>
+            <span className="text-right">Estudiantes</span>
+          </div>
+
           {distribution.map((item) => (
             <button
               key={item.name}
               onClick={() => onOpenRange(item.name)}
-              className="w-full flex items-center justify-between rounded-lg border p-3 bg-white hover:bg-slate-50"
+              className="w-full grid grid-cols-[1fr_140px_120px] items-center rounded-lg border p-3 bg-white hover:bg-slate-50"
             >
               <div className="flex items-center gap-3">
                 <span
@@ -514,10 +521,11 @@ function DistributionCard({
                 <span className="text-[#002E45]">{item.name}</span>
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">
-                  {item.percent.toFixed(1)}%
-                </span>
+              <span className="text-sm text-slate-500 text-right">
+                {item.percent.toFixed(1)}%
+              </span>
+
+              <div className="flex justify-end">
                 <Badge variant="outline">{item.value}</Badge>
               </div>
             </button>
@@ -2011,52 +2019,43 @@ ${topCriticos
         
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
-            <CardTitle className="text-sm text-[#002E45] flex items-center gap-2">
+            <CardTitle className="text-2xl text-[#002E45] flex items-center gap-2">
               <Users className="h-4 w-4" />
               Diagnóstico de procesamiento
             </CardTitle>
           </CardHeader>
 
-          <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div>
-              <p className="text-xs text-slate-500">Estudiantes evaluados</p>
-              <p className="text-2xl font-bold text-[#002E45]">
+              <p className="text-xl text-slate-500">Estudiantes evaluados</p>
+              <p className="text-4xl font-bold text-[#002E45]">
                 {diagnosticoProcesamiento.totalEstudiantesEvaluados}
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-l text-slate-400 mt-1">
                 Preguntas: {diagnosticoProcesamiento.totalPreguntas}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-slate-500">Correctas</p>
-              <p className="text-2xl font-bold text-[#067647]">
+              <p className="text-xl text-slate-500">Correctas</p>
+              <p className="text-4xl font-bold text-[#067647]">
                 {diagnosticoProcesamiento.correctas}/{diagnosticoProcesamiento.totalEsperado}
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-l text-slate-400 mt-1">
                 Respuestas correctas / totales
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-slate-500">Incorrectas</p>
-              <p className="text-2xl font-bold text-[#B42318]">
+              <p className="text-xl text-slate-500">Incorrectas</p>
+              <p className="text-4xl font-bold text-[#B42318]">
                 {diagnosticoProcesamiento.incorrectas}/{diagnosticoProcesamiento.totalEsperado}
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-l text-slate-400 mt-1">
                 Respuestas incorrectas / totales
               </p>
             </div>
 
-            <div>
-              <p className="text-xs text-slate-500">Nulas</p>
-              <p className="text-2xl font-bold text-[#B54708]">
-                {diagnosticoProcesamiento.nulas}/{diagnosticoProcesamiento.totalEsperado}
-              </p>
-              <p className="text-xs text-slate-400 mt-1">
-                Respuestas nulas / totales
-              </p>
-            </div>
           </CardContent>
         </Card>
 

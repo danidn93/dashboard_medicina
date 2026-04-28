@@ -1489,6 +1489,7 @@ export default function DashboardGerencial({
     }
 
     return Array.from(map.values())
+      .filter((item) => item.totalRespuestas > 0)
       .map((item) => ({
         asignatura: item.asignatura,
         docentes: Array.from(item.docentes).sort((a, b) =>
@@ -2426,7 +2427,7 @@ ${topCriticos
         </Card>
         
         <AsignaturasDocentesCard items={asignaturasDocentes} />
-        
+
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle className="text-2xl text-[#002E45] flex items-center gap-2">

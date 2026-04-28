@@ -84,12 +84,20 @@ export interface ReporteData {
 
   distribucionPorNivel?: DistribucionPorNivelData[];
   preguntasDificilesPorNivel?: PreguntasDificilesPorNivelData[];
+
+  promediosPorNivel?: PromedioPorNivelData[];
 }
 
 export interface ReporteImages {
   portada: string;
   header: string;
   footer: string;
+}
+
+export interface PromedioPorNivelData {
+  nivel: string;
+  promedio: number;
+  totalEstudiantes?: number;
 }
 
 const COLORES = {
@@ -634,6 +642,90 @@ const drawSubsectionTitleWithTableGuard = (
   }
 
   return drawSubsectionTitle(pdf, title, y, images, pageState);
+};
+
+const drawPromediosTable = (
+  pdf: jsPDF,
+  data: PromedioPorNivelData[],
+  y: number,
+  images: ReporteImages,
+  pageState: PageState
+) => {
+  const niveles = sortByNivel(data).filter(
+    (item) => Number.isFinite(item.promedio)
+  );
+
+  const promedioGeneralPorNiveles =
+    niveles.length > 0
+      ? niveles.reduce((sum, item) => sum + item.promedio, 0) / niveles.length
+      : 0;
+
+  const totalEstudiantes = niveles.reduce(
+    (sum, item) => sum + (item.totalEstudiantes ?? 0),
+    0
+  );
+
+  const rows = [
+    {
+      nivel: "Promedio general",
+      promedio: promedioGeneralPorNiveles,
+      totalEstudiantes,
+    },
+    ...niveles,
+  ];
+
+  const colWidths = [90, 45, 45];
+  const headerHeight = 12;
+  const rowHeight = 10;
+  const totalWidth = colWidths.reduce((a, b) => a + b, 0);
+  const startX = (PAGE_WIDTH - totalWidth) / 2;
+
+  const headers = ["Detalle", "Promedio", "Estudiantes"];
+
+  const drawHeaderRow = () => {
+    if (y + headerHeight + rowHeight > BOTTOM_Y) {
+      y = startNewPage(pdf, images, pageState);
+    }
+
+    y = drawTableHeader(pdf, headers, colWidths, startX, y, headerHeight, 10);
+  };
+
+  drawHeaderRow();
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setTextColor(0, 0, 0);
+
+  rows.forEach((row, idx) => {
+    if (y + rowHeight > BOTTOM_Y) {
+      y = startNewPage(pdf, images, pageState);
+      drawHeaderRow();
+      pdf.setFont("helvetica", "normal");
+      pdf.setTextColor(0, 0, 0);
+    }
+
+    if (idx % 2 === 0) {
+      pdf.setFillColor(...COLORES.grisClaro);
+      pdf.rect(startX, y, totalWidth, rowHeight, "F");
+    }
+
+    const values = [
+      row.nivel,
+      row.promedio.toFixed(2),
+      String(row.totalEstudiantes),
+    ];
+
+    let xRow = startX;
+
+    values.forEach((value, i) => {
+      pdf.rect(xRow, y, colWidths[i], rowHeight);
+      drawCellTextCentered(pdf, value, xRow, y, colWidths[i], rowHeight, 10);
+      xRow += colWidths[i];
+    });
+
+    y += rowHeight;
+  });
+
+  return y + 4;
 };
 
 const drawDistribucionTable = (
@@ -1451,7 +1543,26 @@ export const generarReportePDF = async (
     pageState
   );
 
-  const tablaDistribucionPrincipal = 1;
+  if (data.promediosPorNivel?.length) {
+    y = drawSubsectionTitleWithTableGuard(
+      pdf,
+      "Tabla 1. Promedio general y promedio por semestre",
+      y,
+      10,
+      images,
+      pageState
+    );
+
+    y = drawPromediosTable(
+      pdf,
+      data.promediosPorNivel,
+      y,
+      images,
+      pageState
+    );
+  }
+
+  const tablaDistribucionPrincipal = data.promediosPorNivel?.length ? 2 : 1;
   let tablaDistribucionSubIndex = 1;
 
   y = drawSubsectionTitleWithTableGuard(
@@ -1521,7 +1632,7 @@ export const generarReportePDF = async (
     }
   }
 
-  const tablaPreguntasPrincipal = 2;
+  const tablaPreguntasPrincipal = data.promediosPorNivel?.length ? 3 : 2;
   let tablaPreguntasSubIndex = 1;
 
   y = drawSubsectionTitleWithTableGuard(

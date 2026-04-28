@@ -143,32 +143,27 @@ type DashboardItem = {
   totalAciertos: number;
 };
 
+type SidebarItemBase = {
+  id: string;
+  primary: string;
+  secondary?: string;
+  badge?: string;
+  meta?: string;
+  badgeClassName?: string;
+  itemClassName?: string;
+};
+
 type SidebarItem =
-  | {
+  | (SidebarItemBase & {
       type: "student";
-      id: string;
-      primary: string;
-      secondary?: string;
-      badge?: string;
-      meta?: string;
-    }
-  | {
+    })
+  | (SidebarItemBase & {
       type: "question";
-      id: string;
-      primary: string;
-      secondary?: string;
-      badge?: string;
-      meta?: string;
-    }
-  | {
+    })
+  | (SidebarItemBase & {
       type: "answer";
-      id: string;
-      primary: string;
-      secondary?: string;
-      badge?: string;
-      meta?: string;
       correctAnswer?: string;
-    };
+    });
 
 type SidebarState = {
   open: boolean;
@@ -817,7 +812,10 @@ function SidebarPanel({
             </p>
           ) : (
             sidebar.items.map((item) => (
-              <div key={item.id} className="rounded-xl border p-4 bg-white">
+              <div
+                key={item.id}
+                className={`rounded-xl border p-4 bg-white ${item.itemClassName ?? ""}`}
+              >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <p className="font-semibold break-words text-[#002E45]">
@@ -841,7 +839,11 @@ function SidebarPanel({
                     )}
                   </div>
 
-                  {item.badge && <Badge>{item.badge}</Badge>}
+                  {item.badge && (
+                    <Badge className={item.badgeClassName}>
+                      {item.badge}
+                    </Badge>
+                  )}
                 </div>
               </div>
             ))
@@ -1356,20 +1358,39 @@ export default function DashboardGerencial({
 
         const intentoIds = intentosAll.map((i) => i.id);
 
-        const respuestasAll = await fetchAllRows<RespuestaRow>(
-          async (from, to) => {
-            const { data, error } = await supabase
-              .from("intento_respuestas")
-              .select(
-                "id, intento_id, pregunta_id, opcion_id, es_correcta, puntaje_obtenido, respuesta_estudiante_raw, respuesta_estudiante_normalizada"
-              )
-              .in("intento_id", intentoIds)
-              .range(from, to);
+        const chunkArray = <T,>(array: T[], size: number): T[][] => {
+          const chunks: T[][] = [];
 
-            if (error) throw error;
-            return (data || []) as RespuestaRow[];
+          for (let i = 0; i < array.length; i += size) {
+            chunks.push(array.slice(i, i + size));
           }
-        );
+
+          return chunks;
+        };
+
+        const respuestasAll: RespuestaRow[] = [];
+
+        for (const chunk of chunkArray(intentoIds, 100)) {
+          const respuestasChunk = await fetchAllRows<RespuestaRow>(
+            async (from, to) => {
+              const { data, error } = await supabase
+                .from("intento_respuestas")
+                .select(
+                  "id, intento_id, pregunta_id, opcion_id, es_correcta, puntaje_obtenido, respuesta_estudiante_raw, respuesta_estudiante_normalizada"
+                )
+                .in("intento_id", chunk)
+                .order("intento_id", { ascending: true })
+                .order("pregunta_id", { ascending: true })
+                .range(from, to);
+
+              if (error) throw error;
+
+              return (data || []) as RespuestaRow[];
+            }
+          );
+
+          respuestasAll.push(...respuestasChunk);
+        }
 
         setRespuestas(respuestasAll);
       } catch (e: any) {
@@ -1932,25 +1953,57 @@ export default function DashboardGerencial({
   };
 
   const buildStudentAnswerDetails = (studentId: string): SidebarItem[] => {
-    return respuestas
-      .filter((r) => r.intento_id === studentId)
+    const respuestasEstudiante = respuestas.filter(
+      (r) => r.intento_id === studentId
+    );
+
+    if (respuestasEstudiante.length === 0) {
+      return [
+        {
+          type: "answer",
+          id: `empty-${studentId}`,
+          primary: "Sin respuestas cargadas",
+          secondary:
+            "No se encontraron respuestas para este estudiante en intento_respuestas.",
+          badge: "Sin datos",
+          itemClassName: "border-[#FF6900] bg-[#FF6900]/5",
+          badgeClassName: "bg-[#FF6900] text-white hover:bg-[#FF6900]",
+        },
+      ];
+    }
+
+    return respuestasEstudiante
       .map((r) => {
         const pregunta = preguntasMap.get(r.pregunta_id);
         const correctAnswer = correctOptionMap.get(r.pregunta_id);
+        const incorrecta = r.es_correcta === false;
+        const correcta = r.es_correcta === true;
 
         return {
           type: "answer",
           id: r.id,
           primary: `Pregunta ${pregunta?.numero_pregunta ?? "N/D"}`,
           secondary: `Respuesta del estudiante: ${
-            r.respuesta_estudiante_raw || "Sin respuesta"
+            r.respuesta_estudiante_raw ||
+            r.respuesta_estudiante_normalizada ||
+            "Sin respuesta"
           }`,
-          badge: r.es_correcta === true ? "Correcta" : "Incorrecta",
+          badge: correcta ? "Correcta" : incorrecta ? "Incorrecta" : "Sin validar",
           meta: truncate(pregunta?.enunciado || pregunta?.pregunta_raw, 220),
           correctAnswer:
-            r.es_correcta === false && correctAnswer
+            incorrecta && correctAnswer
               ? `Respuesta correcta: ${correctAnswer}`
               : undefined,
+          badgeClassName: correcta
+            ? "bg-emerald-600 text-white hover:bg-emerald-600"
+            : incorrecta
+              ? "bg-[#FF6900] text-white hover:bg-[#FF6900]"
+              : "bg-slate-500 text-white hover:bg-slate-500",
+          itemClassName: correcta
+            ? "border-emerald-500/40 bg-emerald-50"
+            : incorrecta
+              ? "border-[#FF6900] bg-[#FF6900]/5"
+              : "border-slate-300 bg-slate-50",
         } as SidebarItem;
       })
       .sort((a, b) =>
@@ -2303,6 +2356,24 @@ ${topCriticos
         };
       }).filter((grupo) => grupo.preguntas.length > 0);
 
+      const promediosPorNivel = nivelesDisponibles
+        .map((nivel) => {
+          const intentosNivel = intentos.filter(
+            (intento) => safeName(intento.nivel, "Sin nivel") === nivel
+          );
+
+          const calificaciones = intentosNivel
+            .map((i) => Number(i.calificacion_total))
+            .filter((n) => Number.isFinite(n));
+
+          return {
+            nivel,
+            promedio: average(calificaciones),
+            totalEstudiantes: calificaciones.length,
+          };
+        })
+        .filter((item) => item.totalEstudiantes > 0);
+        
       await generarReportePDF(
         {
           carrera: "Medicina",
@@ -2312,6 +2383,7 @@ ${topCriticos
           promedioGeneral: kpis.promedioCalificacion,
           porcentajeAprobacion: kpis.porcentajeAprobacion,
           aciertoGlobal: kpis.aciertoGlobal,
+          promediosPorNivel,
           distribucionCalificaciones,
           distribucionPorNivel,
 

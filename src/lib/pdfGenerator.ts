@@ -651,8 +651,8 @@ const drawPromediosTable = (
   images: ReporteImages,
   pageState: PageState
 ) => {
-  const niveles = sortByNivel(data).filter(
-    (item) => Number.isFinite(item.promedio)
+  const niveles = sortByNivel(data).filter((item) =>
+    Number.isFinite(item.promedio)
   );
 
   const promedioGeneralPorNiveles =
@@ -666,12 +666,13 @@ const drawPromediosTable = (
   );
 
   const rows = [
+    ...niveles,
     {
       nivel: "Promedio general",
       promedio: promedioGeneralPorNiveles,
       totalEstudiantes,
+      isGeneral: true,
     },
-    ...niveles,
   ];
 
   const colWidths = [90, 45, 45];
@@ -692,21 +693,21 @@ const drawPromediosTable = (
 
   drawHeaderRow();
 
-  pdf.setFont("helvetica", "normal");
-  pdf.setTextColor(0, 0, 0);
-
   rows.forEach((row, idx) => {
     if (y + rowHeight > BOTTOM_Y) {
       y = startNewPage(pdf, images, pageState);
       drawHeaderRow();
-      pdf.setFont("helvetica", "normal");
-      pdf.setTextColor(0, 0, 0);
     }
 
-    if (idx % 2 === 0) {
+    if ("isGeneral" in row && row.isGeneral) {
+      pdf.setFillColor(255, 105, 0);
+    } else if (idx % 2 === 0) {
       pdf.setFillColor(...COLORES.grisClaro);
-      pdf.rect(startX, y, totalWidth, rowHeight, "F");
+    } else {
+      pdf.setFillColor(255, 255, 255);
     }
+
+    pdf.rect(startX, y, totalWidth, rowHeight, "F");
 
     const values = [
       row.nivel,
@@ -718,14 +719,49 @@ const drawPromediosTable = (
 
     values.forEach((value, i) => {
       pdf.rect(xRow, y, colWidths[i], rowHeight);
+
+      pdf.setFont("helvetica", "isGeneral" in row && row.isGeneral ? "bold" : "normal");
+      pdf.setTextColor("isGeneral" in row && row.isGeneral ? 255 : 0);
+
       drawCellTextCentered(pdf, value, xRow, y, colWidths[i], rowHeight, 10);
+
       xRow += colWidths[i];
     });
 
     y += rowHeight;
   });
 
-  return y + 4;
+  return y + 6;
+};
+
+const drawPromediosPorNivelBarChart = (
+  pdf: jsPDF,
+  data: PromedioPorNivelData[],
+  y: number,
+  images: ReporteImages,
+  pageState: PageState
+) => {
+  const items = [...data]
+    .filter((item) => Number.isFinite(item.promedio))
+    .sort((a, b) => b.promedio - a.promedio)
+    .map((item) => ({
+      nombre: item.nivel,
+      promedio: item.promedio,
+      totalRespuestas: item.totalEstudiantes ?? 0,
+      totalAciertos: undefined,
+    }));
+
+  if (!items.length) return y;
+
+  return drawBarChart(
+    pdf,
+    "Gráfico 1. Promedio por semestre en orden descendente",
+    items,
+    y,
+    images,
+    pageState,
+    { compact: true }
+  );
 };
 
 const drawDistribucionTable = (
@@ -1560,6 +1596,14 @@ export const generarReportePDF = async (
       images,
       pageState
     );
+
+    y = drawPromediosPorNivelBarChart(
+      pdf,
+      data.promediosPorNivel,
+      y,
+      images,
+      pageState
+    );
   }
 
   const tablaDistribucionPrincipal = data.promediosPorNivel?.length ? 2 : 1;
@@ -1567,7 +1611,7 @@ export const generarReportePDF = async (
 
   y = drawSubsectionTitleWithTableGuard(
     pdf,
-    `Tabla ${tablaDistribucionPrincipal}. Distribución de estudiantes según rangos de calificación`,
+    `Tabla ${tablaDistribucionPrincipal}. Distribución de estudiantes según rangos de calificación - General`,
     y,
     10,
     images,
@@ -1609,7 +1653,7 @@ export const generarReportePDF = async (
 
   y = drawBarChart(
     pdf,
-    "Rendimiento por componente",
+    "Rendimiento por componente - General",
     data.componentes,
     y,
     images,
@@ -1637,7 +1681,7 @@ export const generarReportePDF = async (
 
   y = drawSubsectionTitleWithTableGuard(
     pdf,
-    `Tabla ${tablaPreguntasPrincipal}. Preguntas con mayor dificultad`,
+    `Tabla ${tablaPreguntasPrincipal}. Preguntas con mayor dificultad - General`,
     y,
     12,
     images,

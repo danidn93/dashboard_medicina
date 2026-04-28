@@ -2758,7 +2758,31 @@ ${topCriticos
               Personaliza el informe en una sola estructura jerárquica, con la misma
               lógica del editor de normativa.
             </p>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  await saveTextoDocumento({ items: reportItems });
+                  alert("Contenido guardado correctamente.");
+                } catch (error) {
+                  console.error(error);
+                  alert("No se pudo guardar el contenido.");
+                }
+              }}
+            >
+              Guardar contenido
+            </Button>
 
+            <Button variant="outline" onClick={() => setShowPdfModal(false)}>
+              Cerrar
+            </Button>
+
+            <Button
+              className="bg-[#002E45] text-white hover:bg-[#001f31]"
+              onClick={handleGeneratePdf}
+            >
+              Generar PDF
+            </Button>
             <Card className="shadow-card">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">

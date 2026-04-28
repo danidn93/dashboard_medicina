@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -31,6 +32,8 @@ type RequiredField = {
   required?: boolean;
 };
 
+const CLEAR_VALUE = "__CLEAR__";
+
 const FIELD_CONFIG: Record<
   Exclude<SheetRole, "IGNORAR" | null>,
   RequiredField[]
@@ -42,8 +45,7 @@ const FIELD_CONFIG: Record<
     { key: "COMPONENTE", label: "Componente" },
     { key: "SUBCOMPONENTE", label: "Subcomponente" },
     { key: "TEMA", label: "Tema" },
-    { key: "NIVEL", label: "Nivel" },
-    { key: "DOCENTE", label: "Docente" },
+    { key: "ASIGNATURA", label: "Asignatura" },
     { key: "JUSTIFICACION", label: "Justificación" },
   ],
   INTENTOS: [
@@ -55,7 +57,71 @@ const FIELD_CONFIG: Record<
     { key: "FINALIZADO_EL", label: "Finalizado" },
     { key: "TIEMPO_REQUERIDO_TEXTO", label: "Tiempo requerido" },
     { key: "CALIFICACION_TOTAL", label: "Calificación total" },
+    { key: "NIVEL", label: "Nivel" },
   ],
+};
+
+const FIELD_ALIASES: Record<string, string[]> = {
+  NUMERO_PREGUNTA: [
+    "n",
+    "n°",
+    "nº",
+    "no",
+    "numero",
+    "numero pregunta",
+    "numero de pregunta",
+    "nro pregunta",
+    "pregunta numero",
+  ],
+  PREGUNTA_RAW: [
+    "pregunta",
+    "pregunta completa",
+    "enunciado",
+    "texto pregunta",
+    "texto de pregunta",
+  ],
+  RESPUESTA_CORRECTA: [
+    "respuesta correcta",
+    "correcta",
+    "opcion correcta",
+    "opción correcta",
+    "respuesta",
+  ],
+  COMPONENTE: ["componente"],
+  SUBCOMPONENTE: ["subcomponente", "sub componente"],
+  TEMA: ["tema"],
+  ASIGNATURA: ["asignatura", "materia"],
+  JUSTIFICACION: ["justificacion", "justificación", "retroalimentacion", "retroalimentación"],
+
+  APELLIDOS: ["apellido(s)", "apellidos", "apellido"],
+  NOMBRES: ["nombre", "nombres"],
+  CORREO: [
+    "correo",
+    "direccion de correo",
+    "dirección de correo",
+    "email",
+    "e-mail",
+    "correo electronico",
+    "correo electrónico",
+  ],
+  ESTADO: ["estado"],
+  COMENZADO_EL: ["comenzado el", "fecha inicio", "inicio"],
+  FINALIZADO_EL: ["finalizado", "finalizado el", "fecha fin", "fin"],
+  TIEMPO_REQUERIDO_TEXTO: [
+    "tiempo requerido",
+    "tiempo",
+    "duracion",
+    "duración",
+  ],
+  CALIFICACION_TOTAL: [
+    "calificacion total",
+    "calificación total",
+    "calificacion",
+    "calificación",
+    "nota",
+    "puntaje",
+  ],
+  NIVEL: ["nivel"],
 };
 
 const normalizeText = (value: string) =>
@@ -63,6 +129,8 @@ const normalizeText = (value: string) =>
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.:;,_-]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 
 const detectResponseColumns = (headers: string[]) => {
@@ -70,6 +138,64 @@ const detectResponseColumns = (headers: string[]) => {
     const normalized = normalizeText(header);
     return /^respuesta\s*\d+$/.test(normalized);
   });
+};
+
+const findHeaderForField = (
+  headers: string[],
+  fieldKey: string,
+  usedHeaders: Set<string>
+) => {
+  const aliases = FIELD_ALIASES[fieldKey] ?? [];
+  const normalizedAliases = aliases.map(normalizeText);
+
+  const exact = headers.find((header) => {
+    if (usedHeaders.has(header)) return false;
+    return normalizedAliases.includes(normalizeText(header));
+  });
+
+  if (exact) return exact;
+
+  const partial = headers.find((header) => {
+    if (usedHeaders.has(header)) return false;
+
+    const normalizedHeader = normalizeText(header);
+
+    return normalizedAliases.some((alias) => {
+      if (!alias) return false;
+      return normalizedHeader.includes(alias) || alias.includes(normalizedHeader);
+    });
+  });
+
+  return partial ?? "";
+};
+
+const buildAutoColumnMap = (
+  sheet: WizardData["sheets"][number]
+): Record<string, string> => {
+  if (!sheet.role || sheet.role === "IGNORAR") return sheet.columnMap ?? {};
+
+  const fields = FIELD_CONFIG[sheet.role];
+  const nextColumnMap: Record<string, string> = { ...(sheet.columnMap ?? {}) };
+  const usedHeaders = new Set(
+    Object.values(nextColumnMap).filter(Boolean)
+  );
+
+  for (const field of fields) {
+    if (nextColumnMap[field.key]) continue;
+
+    const detectedHeader = findHeaderForField(
+      sheet.headers,
+      field.key,
+      usedHeaders
+    );
+
+    if (detectedHeader) {
+      nextColumnMap[field.key] = detectedHeader;
+      usedHeaders.add(detectedHeader);
+    }
+  }
+
+  return nextColumnMap;
 };
 
 const ColumnSelectionStep = ({
@@ -80,33 +206,87 @@ const ColumnSelectionStep = ({
 }: ColumnSelectionStepProps) => {
   const { toast } = useToast();
 
+  useEffect(() => {
+    let changed = false;
+
+    const updatedSheets = wizardData.sheets.map((sheet) => {
+      if (!sheet.role || sheet.role === "IGNORAR") return sheet;
+
+      const autoMap = buildAutoColumnMap(sheet);
+
+      if (JSON.stringify(autoMap) !== JSON.stringify(sheet.columnMap ?? {})) {
+        changed = true;
+        return {
+          ...sheet,
+          columnMap: autoMap,
+        };
+      }
+
+      return sheet;
+    });
+
+    if (changed) {
+      updateWizardData({ sheets: updatedSheets });
+    }
+  }, []);
+
+  const mappedSheets = wizardData.sheets
+    .map((sheet, originalIndex) => ({
+      ...sheet,
+      originalIndex,
+    }))
+    .filter((sheet) => sheet.role && sheet.role !== "IGNORAR");
+
   const getUsedColumns = (sheet: WizardData["sheets"][number]) => {
     return Object.values(sheet.columnMap ?? {}).filter(Boolean);
   };
 
   const updateColumnMap = (
-    visibleSheetIndex: number,
+    originalSheetIndex: number,
     fieldKey: string,
     columnName: string
   ) => {
-    const mappedSheets = wizardData.sheets.filter(
-      (s) => s.role && s.role !== "IGNORAR"
-    );
-    const targetSheet = mappedSheets[visibleSheetIndex];
+    const updatedSheets = wizardData.sheets.map((sheet, index) => {
+      if (index !== originalSheetIndex) return sheet;
 
-    const updatedSheets = wizardData.sheets.map((sheet) =>
-      sheet.sheetName === targetSheet.sheetName
-        ? {
-            ...sheet,
-            columnMap: {
-              ...(sheet.columnMap ?? {}),
-              [fieldKey]: columnName,
-            },
-          }
-        : sheet
-    );
+      const nextColumnMap = {
+        ...(sheet.columnMap ?? {}),
+      };
+
+      if (columnName === CLEAR_VALUE) {
+        delete nextColumnMap[fieldKey];
+      } else {
+        nextColumnMap[fieldKey] = columnName;
+      }
+
+      return {
+        ...sheet,
+        columnMap: nextColumnMap,
+      };
+    });
 
     updateWizardData({ sheets: updatedSheets });
+  };
+
+  const handleAutoMap = () => {
+    const updatedSheets = wizardData.sheets.map((sheet) => {
+      if (!sheet.role || sheet.role === "IGNORAR") return sheet;
+
+      return {
+        ...sheet,
+        columnMap: buildAutoColumnMap({
+          ...sheet,
+          columnMap: {},
+        }),
+      };
+    });
+
+    updateWizardData({ sheets: updatedSheets });
+
+    toast({
+      title: "Columnas preseleccionadas",
+      description: "Se asignaron columnas según los encabezados detectados.",
+    });
   };
 
   const handleNext = () => {
@@ -114,6 +294,7 @@ const ColumnSelectionStep = ({
       if (!sheet.role || sheet.role === "IGNORAR") continue;
 
       const fields = FIELD_CONFIG[sheet.role];
+
       const missingRequired = fields.filter(
         (field) => field.required && !sheet.columnMap?.[field.key]
       );
@@ -129,6 +310,7 @@ const ColumnSelectionStep = ({
 
       if (sheet.role === "INTENTOS") {
         const responseColumns = detectResponseColumns(sheet.headers);
+
         if (responseColumns.length === 0) {
           toast({
             title: "Columnas de respuestas no detectadas",
@@ -143,10 +325,6 @@ const ColumnSelectionStep = ({
     onNext();
   };
 
-  const mappedSheets = wizardData.sheets.filter(
-    (s) => s.role && s.role !== "IGNORAR"
-  );
-
   return (
     <div className="space-y-8">
       <div className="text-center">
@@ -156,65 +334,90 @@ const ColumnSelectionStep = ({
         </p>
       </div>
 
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={handleAutoMap}>
+          Preseleccionar columnas
+        </Button>
+      </div>
+
       <div className="space-y-6">
-        {mappedSheets.map((sheet, sheetIndex) => {
-          const fields = FIELD_CONFIG[sheet.role!];
+        {mappedSheets.map((sheet, visibleIndex) => {
+          const fields =
+            FIELD_CONFIG[
+              sheet.role as Exclude<SheetRole, "IGNORAR" | null>
+            ];
+
           const detectedResponseColumns =
             sheet.role === "INTENTOS"
               ? detectResponseColumns(sheet.headers)
               : [];
 
           return (
-            <Card key={sheet.sheetName}>
+            <Card key={`${sheet.sheetName}-${sheet.originalIndex}`}>
               <CardHeader>
-                <CardTitle className="flex items-center gap-3">
+                <CardTitle className="flex flex-wrap items-center gap-3">
                   <span>Hoja: {sheet.sheetName}</span>
                   <Badge variant="secondary">{sheet.role}</Badge>
+                  <Badge variant="outline">#{visibleIndex + 1}</Badge>
                 </CardTitle>
               </CardHeader>
 
               <CardContent className="space-y-5">
-                {fields.map((field) => (
-                  <div key={field.key} className="space-y-2">
-                    <Label>
-                      {field.label}
-                      {field.required && (
-                        <span className="text-destructive ml-1">*</span>
-                      )}
-                    </Label>
+                {fields.map((field) => {
+                  const selectedValue = sheet.columnMap?.[field.key] ?? "";
+                  const usedColumns = getUsedColumns(sheet);
 
-                    <Select
-                      value={sheet.columnMap?.[field.key] ?? ""}
-                      onValueChange={(value) =>
-                        updateColumnMap(sheetIndex, field.key, value)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecciona la columna" />
-                      </SelectTrigger>
+                  return (
+                    <div key={field.key} className="space-y-2">
+                      <Label>
+                        {field.label}
+                        {field.required && (
+                          <span className="text-destructive ml-1">*</span>
+                        )}
+                      </Label>
 
-                      <SelectContent>
-                        {sheet.headers.map((header) => {
-                          const usedColumns = getUsedColumns(sheet);
-                          const isUsed =
-                            usedColumns.includes(header) &&
-                            sheet.columnMap?.[field.key] !== header;
+                      <Select
+                        value={selectedValue}
+                        onValueChange={(value) =>
+                          updateColumnMap(
+                            sheet.originalIndex,
+                            field.key,
+                            value
+                          )
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecciona la columna" />
+                        </SelectTrigger>
 
-                          return (
-                            <SelectItem
-                              key={header}
-                              value={header}
-                              disabled={isUsed}
-                            >
-                              {header}
-                              {isUsed ? " (ya asignada)" : ""}
+                        <SelectContent>
+                          {!field.required && (
+                            <SelectItem value={CLEAR_VALUE}>
+                              Sin asignar
                             </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ))}
+                          )}
+
+                          {sheet.headers.map((header, headerIndex) => {
+                            const isUsed =
+                              usedColumns.includes(header) &&
+                              selectedValue !== header;
+
+                            return (
+                              <SelectItem
+                                key={`${header}-${headerIndex}`}
+                                value={header}
+                                disabled={isUsed}
+                              >
+                                {header}
+                                {isUsed ? " (ya asignada)" : ""}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  );
+                })}
 
                 {sheet.role === "INTENTOS" && (
                   <div className="pt-2 border-t">
@@ -232,7 +435,8 @@ const ColumnSelectionStep = ({
                       </div>
                     ) : (
                       <p className="text-sm text-destructive">
-                        No se detectaron columnas tipo "Respuesta 1", "Respuesta 2", etc.
+                        No se detectaron columnas tipo "Respuesta 1", "Respuesta
+                        2", etc.
                       </p>
                     )}
                   </div>
@@ -249,10 +453,7 @@ const ColumnSelectionStep = ({
           Atrás
         </Button>
 
-        <Button
-          onClick={handleNext}
-          className="bg-accent hover:bg-accent/90"
-        >
+        <Button onClick={handleNext} className="bg-accent hover:bg-accent/90">
           Continuar
           <ArrowRight className="ml-2 h-4 w-4" />
         </Button>

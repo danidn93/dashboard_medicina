@@ -119,6 +119,7 @@ type IntentoRow = {
   tiempo_requerido_texto: string | null;
   tiempo_requerido_segundos?: number | null;
   calificacion_total: number | null;
+  nivel: string | null;
 };
 
 type RespuestaRow = {
@@ -851,6 +852,103 @@ function SidebarPanel({
   );
 }
 
+function AsignaturasDocentesCard({
+  items,
+}: {
+  items: Array<{
+    asignatura: string;
+    docentes: string[];
+    totalPreguntas: number;
+    totalRespuestas: number;
+    totalAciertos: number;
+    aprobacion: number;
+  }>;
+}) {
+  return (
+    <Card className="border-slate-200 shadow-sm">
+      <CardHeader>
+        <CardTitle className="text-2xl text-[#002E45] flex items-center gap-2">
+          <BookOpen className="h-5 w-5" />
+          Asignaturas, docentes y aprobación
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent>
+        {items.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No hay asignaturas o docentes registrados.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b bg-slate-50 text-[#002E45]">
+                  <th className="text-left p-3 font-semibold">Asignatura</th>
+                  <th className="text-left p-3 font-semibold">Docente(s)</th>
+                  <th className="text-right p-3 font-semibold">Preguntas</th>
+                  <th className="text-right p-3 font-semibold">Aciertos</th>
+                  <th className="text-right p-3 font-semibold">Respuestas</th>
+                  <th className="text-right p-3 font-semibold">Aprobación</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.asignatura} className="border-b last:border-0">
+                    <td className="p-3 font-medium text-[#002E45]">
+                      {item.asignatura}
+                    </td>
+
+                    <td className="p-3 text-slate-600">
+                      {item.docentes.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {item.docentes.map((docente) => (
+                            <Badge key={docente} variant="outline">
+                              {docente}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">Sin docente</span>
+                      )}
+                    </td>
+
+                    <td className="p-3 text-right">
+                      <Badge variant="outline">{item.totalPreguntas}</Badge>
+                    </td>
+
+                    <td className="p-3 text-right">
+                      <Badge variant="outline">{item.totalAciertos}</Badge>
+                    </td>
+
+                    <td className="p-3 text-right">
+                      <Badge variant="outline">{item.totalRespuestas}</Badge>
+                    </td>
+
+                    <td className="p-3 text-right">
+                      <Badge
+                        className={
+                          item.aprobacion < 60
+                            ? "bg-[#B42318] text-white hover:bg-[#B42318]"
+                            : item.aprobacion < 70
+                              ? "bg-[#F79009] text-white hover:bg-[#F79009]"
+                              : "bg-[#067647] text-white hover:bg-[#067647]"
+                        }
+                      >
+                        {item.aprobacion.toFixed(2)}%
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 interface DashboardGerencialProps {
   forcePublic?: boolean;
   versionIdOverride?: string;
@@ -973,6 +1071,7 @@ export default function DashboardGerencial({
 
   const [level, setLevel] = useState<Level>("componentes");
   const [filter, setFilter] = useState<FilterType>("todos");
+  const [nivelFilter, setNivelFilter] = useState<string>("todos");
 
   const [componenteId, setComponenteId] = useState<string | undefined>();
   const [subcomponenteId, setSubcomponenteId] = useState<string | undefined>();
@@ -1187,6 +1286,7 @@ export default function DashboardGerencial({
                 titulo: item.titulo ?? "",
                 contenido: item.contenido ?? "",
               }));
+
               setReportItems(normalized);
             } else {
               setReportItems([]);
@@ -1237,7 +1337,7 @@ export default function DashboardGerencial({
             const { data, error } = await supabase
               .from("intentos")
               .select(
-                "id, apellidos, nombres, correo, estado, comenzado_el, finalizado_el, tiempo_requerido_texto, tiempo_requerido_segundos, calificacion_total"
+                "id, apellidos, nombres, correo, estado, comenzado_el, finalizado_el, tiempo_requerido_texto, tiempo_requerido_segundos, calificacion_total, nivel"
               )
               .eq("version_id", versionId)
               .range(from, to);
@@ -1293,6 +1393,115 @@ export default function DashboardGerencial({
     [intentos]
   );
 
+  const nivelesDisponibles = useMemo(() => {
+    const set = new Set<string>();
+
+    for (const intento of intentos) {
+      const nivel = safeName(intento.nivel, "");
+      if (nivel) set.add(nivel);
+    }
+
+    return Array.from(set).sort((a, b) =>
+      a.localeCompare(b, "es", { sensitivity: "base" })
+    );
+  }, [intentos]);
+
+  const intentosFiltrados = useMemo(() => {
+    if (nivelFilter === "todos") return intentos;
+
+    return intentos.filter(
+      (intento) => safeName(intento.nivel, "Sin nivel") === nivelFilter
+    );
+  }, [intentos, nivelFilter]);
+
+  const intentoIdsFiltrados = useMemo(
+    () => new Set(intentosFiltrados.map((i) => i.id)),
+    [intentosFiltrados]
+  );
+
+  const respuestasFiltradas = useMemo(() => {
+    if (nivelFilter === "todos") return respuestas;
+
+    return respuestas.filter((respuesta) =>
+      intentoIdsFiltrados.has(respuesta.intento_id)
+    );
+  }, [respuestas, intentoIdsFiltrados, nivelFilter]);
+
+  const preguntaIdsConRespuestasFiltradas = useMemo(
+    () => new Set(respuestasFiltradas.map((r) => r.pregunta_id)),
+    [respuestasFiltradas]
+  );
+
+  const preguntasFiltradas = useMemo(() => {
+    if (nivelFilter === "todos") return preguntas;
+
+    return preguntas.filter((pregunta) =>
+      preguntaIdsConRespuestasFiltradas.has(pregunta.id)
+    );
+  }, [preguntas, preguntaIdsConRespuestasFiltradas, nivelFilter]);
+
+  const asignaturasDocentes = useMemo(() => {
+    const preguntasMapLocal = new Map(preguntasFiltradas.map((p) => [p.id, p]));
+
+    const map = new Map<
+      string,
+      {
+        asignatura: string;
+        docentes: Set<string>;
+        totalPreguntas: Set<string>;
+        totalRespuestas: number;
+        totalAciertos: number;
+      }
+    >();
+
+    for (const pregunta of preguntasFiltradas) {
+      const asignatura = safeName(pregunta.nivel, "Sin asignatura");
+      const docente = safeName(pregunta.docente, "");
+
+      if (!map.has(asignatura)) {
+        map.set(asignatura, {
+          asignatura,
+          docentes: new Set<string>(),
+          totalPreguntas: new Set<string>(),
+          totalRespuestas: 0,
+          totalAciertos: 0,
+        });
+      }
+
+      const item = map.get(asignatura)!;
+      item.totalPreguntas.add(pregunta.id);
+
+      if (docente) item.docentes.add(docente);
+    }
+
+    for (const respuesta of respuestasFiltradas) {
+      const pregunta = preguntasMapLocal.get(respuesta.pregunta_id);
+      if (!pregunta) continue;
+
+      const asignatura = safeName(pregunta.nivel, "Sin asignatura");
+      const item = map.get(asignatura);
+      if (!item) continue;
+
+      item.totalRespuestas += 1;
+      if (respuesta.es_correcta === true) {
+        item.totalAciertos += 1;
+      }
+    }
+
+    return Array.from(map.values())
+      .map((item) => ({
+        asignatura: item.asignatura,
+        docentes: Array.from(item.docentes).sort((a, b) =>
+          a.localeCompare(b, "es", { sensitivity: "base" })
+        ),
+        totalPreguntas: item.totalPreguntas.size,
+        totalRespuestas: item.totalRespuestas,
+        totalAciertos: item.totalAciertos,
+        aprobacion: percent(item.totalAciertos, item.totalRespuestas),
+      }))
+      .sort((a, b) => a.aprobacion - b.aprobacion);
+  }, [preguntasFiltradas, respuestasFiltradas]);
+
   const correctOptionMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const op of opciones) {
@@ -1303,11 +1512,23 @@ export default function DashboardGerencial({
 
   const itemsByLevel = useMemo(
     () => ({
-      componentes: aggregateByLevel("componentes", preguntas, respuestas),
-      subcomponentes: aggregateByLevel("subcomponentes", preguntas, respuestas),
-      temas: aggregateByLevel("temas", preguntas, respuestas),
+      componentes: aggregateByLevel(
+        "componentes",
+        preguntasFiltradas,
+        respuestasFiltradas
+      ),
+      subcomponentes: aggregateByLevel(
+        "subcomponentes",
+        preguntasFiltradas,
+        respuestasFiltradas
+      ),
+      temas: aggregateByLevel(
+        "temas",
+        preguntasFiltradas,
+        respuestasFiltradas
+      ),
     }),
-    [preguntas, respuestas]
+    [preguntasFiltradas, respuestasFiltradas]
   );
 
   const currentItems = useMemo(() => {
@@ -1358,8 +1579,12 @@ export default function DashboardGerencial({
       { pregunta: PreguntaRow; total: number; aciertos: number }
     >();
 
-    for (const r of respuestas) {
-      const pregunta = preguntasMap.get(r.pregunta_id);
+    const preguntasFiltradasMap = new Map(
+      preguntasFiltradas.map((p) => [p.id, p])
+    );
+
+    for (const r of respuestasFiltradas) {
+      const pregunta = preguntasFiltradasMap.get(r.pregunta_id);
       if (!pregunta) continue;
 
       if (!grouped.has(pregunta.id)) {
@@ -1379,7 +1604,7 @@ export default function DashboardGerencial({
       ...item,
       porcentaje: percent(item.aciertos, item.total),
     }));
-  }, [preguntasMap, respuestas]);
+  }, [preguntasFiltradas, respuestasFiltradas]);
 
   const preguntasDificiles = useMemo(
     () =>
@@ -1399,47 +1624,50 @@ export default function DashboardGerencial({
 
   const topEstudiantes = useMemo(
     () =>
-      [...intentos]
+      [...intentosFiltrados]
         .filter((i) => i.calificacion_total != null)
         .sort(
           (a, b) => (b.calificacion_total ?? 0) - (a.calificacion_total ?? 0)
         )
         .slice(0, 10),
-    [intentos]
+    [intentosFiltrados]
   );
 
   const peoresEstudiantes = useMemo(
     () =>
-      [...intentos]
+      [...intentosFiltrados]
         .filter((i) => i.calificacion_total != null)
         .sort(
-          (a, b) => (a.calificacion_total ?? 9999) - (b.calificacion_total ?? 9999)
+          (a, b) =>
+            (a.calificacion_total ?? 9999) - (b.calificacion_total ?? 9999)
         )
         .slice(0, 10),
-    [intentos]
+    [intentosFiltrados]
   );
 
   const statsRespuestas = useMemo(() => {
-    const total = respuestas.length;
-    const correctas = respuestas.filter((r) => r.es_correcta === true).length;
-    const incorrectas = respuestas.filter((r) => r.es_correcta === false).length;
-    const nulas = respuestas.filter((r) => r.es_correcta == null).length;
-    const conOpcion = respuestas.filter((r) => !!r.opcion_id).length;
+    const total = respuestasFiltradas.length;
+    const correctas = respuestasFiltradas.filter(
+      (r) => r.es_correcta === true
+    ).length;
+    const incorrectas = respuestasFiltradas.filter(
+      (r) => r.es_correcta === false
+    ).length;
+    const nulas = respuestasFiltradas.filter((r) => r.es_correcta == null).length;
+    const conOpcion = respuestasFiltradas.filter((r) => !!r.opcion_id).length;
 
     return { total, correctas, incorrectas, nulas, conOpcion };
-  }, [respuestas]);
+  }, [respuestasFiltradas]);
 
   const diagnosticoProcesamiento = useMemo(() => {
-    // 🔥 preguntas reales usadas en el examen (no banco)
     const preguntasReales = new Set(
-      respuestas.map((r) => r.pregunta_id)
+      respuestasFiltradas.map((r) => r.pregunta_id)
     );
 
     const totalPreguntas = preguntasReales.size;
 
-    // 🔥 estudiantes que realmente respondieron
     const estudiantesConRespuestas = new Set(
-      respuestas.map((r) => r.intento_id)
+      respuestasFiltradas.map((r) => r.intento_id)
     );
 
     const totalEstudiantesEvaluados = estudiantesConRespuestas.size;
@@ -1452,12 +1680,12 @@ export default function DashboardGerencial({
       totalEsperado,
       correctas: statsRespuestas.correctas,
       incorrectas: statsRespuestas.incorrectas,
-      nulas: statsRespuestas.nulas, // 👈 ahora usamos el real
+      nulas: statsRespuestas.nulas,
     };
-  }, [respuestas, statsRespuestas]);
+  }, [respuestasFiltradas, statsRespuestas]);
 
   const kpis = useMemo(() => {
-    const calificaciones = intentos
+    const calificaciones = intentosFiltrados
       .map((i) => Number(i.calificacion_total))
       .filter((n) => Number.isFinite(n));
 
@@ -1465,29 +1693,32 @@ export default function DashboardGerencial({
     const aprobados = calificaciones.filter((n) => n >= PASS_SCORE).length;
     const porcentajeAprobacion = percent(aprobados, calificaciones.length);
 
-    const totalAciertos = respuestas.filter((r) => r.es_correcta === true).length;
-    const aciertoGlobal = percent(totalAciertos, respuestas.length);
+    const totalAciertos = respuestasFiltradas.filter(
+      (r) => r.es_correcta === true
+    ).length;
+
+    const aciertoGlobal = percent(totalAciertos, respuestasFiltradas.length);
 
     const totalPreguntasUnicas =
       new Set(
-        preguntas
+        preguntasFiltradas
           .map((p) => p.numero_pregunta)
           .filter((n) => typeof n === "number" && Number.isFinite(n))
-      ).size || version?.total_preguntas || 0;
+      ).size || 0;
 
     return {
       totalPreguntas: totalPreguntasUnicas,
-      totalIntentos: intentos.length || version?.total_intentos || 0,
+      totalIntentos: intentosFiltrados.length,
       promedioCalificacion,
       porcentajeAprobacion,
       aciertoGlobal,
     };
-  }, [preguntas.length, version, intentos, respuestas]);
+  }, [preguntasFiltradas, intentosFiltrados, respuestasFiltradas]);
 
   const dashboardData = useMemo<LegacyDashboardData | null>(() => {
     if (!version) return null;
 
-    const aprobados = intentos.filter(
+    const aprobados = intentosFiltrados.filter(
       (i) => (i.calificacion_total ?? 0) >= PASS_SCORE
     ).length;
 
@@ -1495,11 +1726,11 @@ export default function DashboardGerencial({
       periodo_detectado: `Versión ${version.version_number}`,
       global: kpis.aciertoGlobal,
       porcentaje_aprobados: kpis.porcentajeAprobacion,
-      numero_estudiantes: intentos.filter(
+      numero_estudiantes: intentosFiltrados.filter(
         (i) => i.calificacion_total != null
       ).length,
-      total_inscritos: intentos.length,
-      inscritos_primera_vez: intentos.length,
+      total_inscritos: intentosFiltrados.length,
+      inscritos_primera_vez: intentosFiltrados.length,
       inscritos_n_veces: 0,
       aprobados_primera_vez: aprobados,
       aprobados_n_veces: 0,
@@ -1513,14 +1744,21 @@ export default function DashboardGerencial({
       docentes_por_tema: {},
       asignaturas_detalle: [],
       conteo: {
-        preguntas: preguntas.length,
-        intentos: intentos.length,
-        respuestas: respuestas.length,
+        preguntas: preguntasFiltradas.length,
+        intentos: intentosFiltrados.length,
+        respuestas: respuestasFiltradas.length,
       },
       por_asignatura: [],
       docentes_global_detalle: [],
     };
-  }, [version, kpis, intentos, itemsByLevel, preguntas.length, respuestas.length]);
+  }, [
+    version,
+    kpis,
+    intentosFiltrados,
+    itemsByLevel,
+    preguntasFiltradas.length,
+    respuestasFiltradas.length,
+  ]);
 
   const allCriticalItems = useMemo(() => {
     if (!dashboardData) return [];
@@ -1947,6 +2185,123 @@ ${topCriticos
         recomendaciones,
       } = await obtenerConclusionesYRecomendaciones(versionId!);
 
+      const nivelesParaPdf = nivelesDisponibles;
+
+      const componentesPorNivel = nivelesParaPdf.map((nivel) => {
+        const intentosNivel = intentos.filter(
+          (intento) => safeName(intento.nivel, "Sin nivel") === nivel
+        );
+
+        const intentoIdsNivel = new Set(intentosNivel.map((i) => i.id));
+
+        const respuestasNivel = respuestas.filter((respuesta) =>
+          intentoIdsNivel.has(respuesta.intento_id)
+        );
+
+        const preguntaIdsNivel = new Set(
+          respuestasNivel.map((respuesta) => respuesta.pregunta_id)
+        );
+
+        const preguntasNivel = preguntas.filter((pregunta) =>
+          preguntaIdsNivel.has(pregunta.id)
+        );
+
+        return {
+          nivel,
+          componentes: aggregateByLevel(
+            "componentes",
+            preguntasNivel,
+            respuestasNivel
+          ).map((item) => ({
+            nombre: item.nombre,
+            promedio: item.promedio,
+            totalRespuestas: item.totalRespuestas,
+            totalAciertos: item.totalAciertos,
+          })),
+        };
+      }).filter((grupo) => grupo.componentes.length > 0);
+
+      const distribucionPorNivel = nivelesDisponibles.map((nivel) => {
+        const intentosNivel = intentos.filter(
+          (intento) => safeName(intento.nivel, "Sin nivel") === nivel
+        );
+
+        const distribucionMap = {
+          "0-49": 0,
+          "50-69": 0,
+          "70-84": 0,
+          "85-100": 0,
+          "Sin nota": 0,
+        };
+
+        for (const intento of intentosNivel) {
+          const range = getScoreRangeLabel(intento.calificacion_total);
+          distribucionMap[range as keyof typeof distribucionMap] += 1;
+        }
+
+        return {
+          nivel,
+          distribucion: Object.entries(distribucionMap).map(([rango, frecuencia]) => ({
+            rango,
+            frecuencia,
+            porcentaje: percent(frecuencia, intentosNivel.length),
+          })),
+        };
+      }).filter((grupo) =>
+        grupo.distribucion.some((item) => item.frecuencia > 0)
+      );
+
+      const preguntasDificilesPorNivel = nivelesDisponibles.map((nivel) => {
+        const intentosNivel = intentos.filter(
+          (intento) => safeName(intento.nivel, "Sin nivel") === nivel
+        );
+
+        const intentoIdsNivel = new Set(intentosNivel.map((i) => i.id));
+
+        const respuestasNivel = respuestas.filter((respuesta) =>
+          intentoIdsNivel.has(respuesta.intento_id)
+        );
+
+        const grouped = new Map<
+          string,
+          { pregunta: PreguntaRow; total: number; aciertos: number }
+        >();
+
+        for (const respuesta of respuestasNivel) {
+          const pregunta = preguntasMap.get(respuesta.pregunta_id);
+          if (!pregunta) continue;
+
+          if (!grouped.has(pregunta.id)) {
+            grouped.set(pregunta.id, {
+              pregunta,
+              total: 0,
+              aciertos: 0,
+            });
+          }
+
+          const item = grouped.get(pregunta.id)!;
+          item.total += 1;
+
+          if (respuesta.es_correcta === true) {
+            item.aciertos += 1;
+          }
+        }
+
+        return {
+          nivel,
+          preguntas: Array.from(grouped.values())
+            .map((item) => ({
+              numero_pregunta: item.pregunta.numero_pregunta,
+              enunciado: item.pregunta.enunciado || item.pregunta.pregunta_raw,
+              tema: item.pregunta.tema || "Sin tema",
+              componente: item.pregunta.componente || "Sin componente",
+              porcentaje: percent(item.aciertos, item.total),
+            }))
+            .sort((a, b) => a.porcentaje - b.porcentaje)
+            .slice(0, 5),
+        };
+      }).filter((grupo) => grupo.preguntas.length > 0);
+
       await generarReportePDF(
         {
           carrera: "Medicina",
@@ -1957,12 +2312,16 @@ ${topCriticos
           porcentajeAprobacion: kpis.porcentajeAprobacion,
           aciertoGlobal: kpis.aciertoGlobal,
           distribucionCalificaciones,
+          distribucionPorNivel,
+
           componentes: itemsByLevel.componentes.map((item) => ({
             nombre: item.nombre,
             promedio: item.promedio,
             totalRespuestas: item.totalRespuestas,
             totalAciertos: item.totalAciertos,
           })),
+
+          componentesPorNivel,
           preguntasDificiles: preguntasDificiles.map((item) => ({
             numero_pregunta: item.pregunta.numero_pregunta,
             enunciado: item.pregunta.enunciado || item.pregunta.pregunta_raw,
@@ -1970,6 +2329,9 @@ ${topCriticos
             componente: item.pregunta.componente || "Sin componente",
             porcentaje: item.porcentaje,
           })),
+
+          preguntasDificilesPorNivel,
+
           preguntasFaciles: preguntasFaciles.map((item) => ({
             numero_pregunta: item.pregunta.numero_pregunta,
             enunciado: item.pregunta.enunciado || item.pregunta.pregunta_raw,
@@ -1977,9 +2339,10 @@ ${topCriticos
             componente: item.pregunta.componente || "Sin componente",
             porcentaje: item.porcentaje,
           })),
+
           conclusionesGeneradas: conclusiones,
           recomendacionesGeneradas: recomendaciones,
-
+          usarSeccionesPorDefecto: false,
           introduccionPersonalizada: pdfSections.introduccionPersonalizada,
           antecedentesPersonalizados: pdfSections.antecedentesPersonalizados,
           motivacionJuridicaPersonalizada: pdfSections.motivacionJuridicaPersonalizada,
@@ -2016,6 +2379,53 @@ ${topCriticos
 
       <main className="container mx-auto px-4 py-6 space-y-6">
         <DashboardKPIs data={dashboardData} />
+        
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4 items-end">
+              <div className="space-y-2">
+                <Label>Filtrar por nivel</Label>
+
+                <Select
+                  value={nivelFilter}
+                  onValueChange={(value) => {
+                    setNivelFilter(value);
+                    setSelectedItem(null);
+                    setComponenteId(undefined);
+                    setSubcomponenteId(undefined);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un nivel" />
+                  </SelectTrigger>
+
+                  <SelectContent>
+                    <SelectItem value="todos">Todos los niveles</SelectItem>
+
+                    {nivelesDisponibles.map((nivel) => (
+                      <SelectItem key={nivel} value={nivel}>
+                        {nivel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="rounded-xl bg-[#002E45]/5 border border-[#002E45]/10 p-4">
+                <p className="text-sm text-slate-500">Vista actual</p>
+                <p className="text-lg font-semibold text-[#002E45]">
+                  {nivelFilter === "todos" ? "Todos los niveles" : nivelFilter}
+                </p>
+                <p className="text-sm text-slate-500 mt-1">
+                  {intentosFiltrados.length} intento(s) · {preguntasFiltradas.length} pregunta(s) ·{" "}
+                  {respuestasFiltradas.length} respuesta(s)
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <AsignaturasDocentesCard items={asignaturasDocentes} />
         
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
@@ -2109,7 +2519,7 @@ ${topCriticos
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <DistributionCard
-            intentos={intentos}
+            intentos={intentosFiltrados}
             onOpenRange={openStudentsByRange}
           />
 

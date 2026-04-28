@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,10 +13,12 @@ import {
 interface ConfirmationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   title: string;
   description: string;
   children?: React.ReactNode;
+  confirmText?: string;
+  cancelText?: string;
 }
 
 const ConfirmationModal = ({
@@ -25,22 +28,44 @@ const ConfirmationModal = ({
   title,
   description,
   children,
+  confirmText = "Confirmar",
+  cancelText = "Cancelar",
 }: ConfirmationModalProps) => {
+  const [loading, setLoading] = useState(false);
+
+  const handleConfirm = async () => {
+    try {
+      setLoading(true);
+      await onConfirm();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <AlertDialog open={isOpen} onOpenChange={onClose}>
+    <AlertDialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+
         {children}
+
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel disabled={loading}>
+            {cancelText}
+          </AlertDialogCancel>
+
           <AlertDialogAction
-            onClick={onConfirm}
+            disabled={loading}
+            onClick={(event) => {
+              event.preventDefault();
+              handleConfirm();
+            }}
             className="bg-accent hover:bg-accent/90"
           >
-            Confirmar
+            {loading ? "Procesando..." : confirmText}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

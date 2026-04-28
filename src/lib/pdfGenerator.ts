@@ -1,5 +1,20 @@
 import jsPDF from "jspdf";
 
+export interface DistribucionPorNivelData {
+  nivel: string;
+  distribucion: DistribucionData[];
+}
+
+export interface PreguntasDificilesPorNivelData {
+  nivel: string;
+  preguntas: PreguntaResumenData[];
+}
+
+export interface ComponentesPorNivelData {
+  nivel: string;
+  componentes: ComponenteData[];
+}
+
 export interface ComponenteData {
   nombre: string;
   promedio: number;
@@ -54,15 +69,21 @@ export interface ReporteData {
   aciertoGlobal: number;
   distribucionCalificaciones: DistribucionData[];
   componentes: ComponenteData[];
+  componentesPorNivel?: ComponentesPorNivelData[];
   preguntasDificiles: PreguntaResumenData[];
   preguntasFaciles: PreguntaResumenData[];
   conclusionesGeneradas?: string[];
   recomendacionesGeneradas?: string[];
 
+  usarSeccionesPorDefecto?: boolean;
+
   introduccionPersonalizada?: ReportCustomSection;
   antecedentesPersonalizados?: ReportCustomSection;
   motivacionJuridicaPersonalizada?: ReportCustomSection;
   metodologiaPersonalizada?: ReportCustomSection;
+
+  distribucionPorNivel?: DistribucionPorNivelData[];
+  preguntasDificilesPorNivel?: PreguntasDificilesPorNivelData[];
 }
 
 export interface ReporteImages {
@@ -690,18 +711,27 @@ const drawBarChart = (
   items: ComponenteData[],
   y: number,
   images: ReporteImages,
-  pageState: PageState
+  pageState: PageState,
+  options?: {
+    compact?: boolean;
+  }
 ) => {
   const sortedItems = [...items].sort((a, b) => b.promedio - a.promedio);
+  if (!sortedItems.length) return y;
 
-  const chartHeight = 70;
+  const compact = options?.compact === true;
+
+  const chartHeight = compact ? 38 : 62;
   const chartWidth = 170;
   const chartX = 20;
+  const labelAreaHeight = compact ? 16 : 24;
+  const gap = compact ? 4 : 6;
 
-  const labelAreaHeight = 28;
-  const totalBlockHeight = 10 + chartHeight + labelAreaHeight + 18;
+  const totalBlockHeight =
+    9 + chartHeight + labelAreaHeight + (compact ? 6 : 10);
 
   y = ensureBlockSpace(pdf, y, totalBlockHeight, images, pageState);
+
   y = drawSubsectionTitle(pdf, title, y, images, pageState);
 
   const baseY = y + chartHeight;
@@ -709,17 +739,21 @@ const drawBarChart = (
 
   const leftAxisWidth = 14;
   const usableWidth = chartWidth - leftAxisWidth;
-  const gap = 6;
   const barCount = sortedItems.length || 1;
-  const barWidth = Math.max(16, (usableWidth - gap * (barCount - 1)) / barCount);
+  const barWidth = Math.max(
+    compact ? 9 : 14,
+    (usableWidth - gap * (barCount - 1)) / barCount
+  );
 
   pdf.setDrawColor(210, 215, 223);
-  pdf.setLineWidth(0.3);
+  pdf.setLineWidth(0.25);
   pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(8);
+  pdf.setFontSize(compact ? 6.5 : 8);
   pdf.setTextColor(...COLORES.gris);
 
-  [0, 25, 50, 75, 100].forEach((tick) => {
+  const ticks = compact ? [0, 50, 100] : [0, 25, 50, 75, 100];
+
+  ticks.forEach((tick) => {
     const tickY = baseY - (tick / maxValue) * chartHeight;
     pdf.line(chartX + leftAxisWidth, tickY, chartX + chartWidth, tickY);
     pdf.text(String(tick), chartX + leftAxisWidth - 2, tickY + 1.5, {
@@ -728,7 +762,7 @@ const drawBarChart = (
   });
 
   pdf.setDrawColor(...COLORES.azulUnemi);
-  pdf.setLineWidth(0.5);
+  pdf.setLineWidth(0.4);
   pdf.line(chartX + leftAxisWidth, y, chartX + leftAxisWidth, baseY);
   pdf.line(chartX + leftAxisWidth, baseY, chartX + chartWidth, baseY);
 
@@ -742,52 +776,72 @@ const drawBarChart = (
     const color = getPerformanceColorPdf(value);
 
     pdf.setFillColor(232, 236, 242);
-    pdf.roundedRect(x, baseY - chartHeight, barWidth, chartHeight, 2, 2, "F");
+    pdf.roundedRect(
+      x,
+      baseY - chartHeight,
+      barWidth,
+      chartHeight,
+      1.5,
+      1.5,
+      "F"
+    );
 
     pdf.setFillColor(...color);
-    pdf.roundedRect(x + 1.2, barY, barWidth - 2.4, barHeight, 2, 2, "F");
-
-    pdf.setFillColor(...COLORES.azulUnemi);
-    const pillText = `${value.toFixed(2)}%`;
-    const pillWidth = Math.max(18, pdf.getTextWidth(pillText) + 8);
-    const pillX = x + barWidth / 2 - pillWidth / 2;
-    const pillY = y - 2;
-
-    pdf.roundedRect(pillX, pillY, pillWidth, 8, 4, 4, "F");
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(8.5);
-    pdf.setTextColor(255, 255, 255);
-    pdf.text(pillText, x + barWidth / 2, pillY + 5.4, { align: "center" });
+    pdf.roundedRect(
+      x + 1,
+      barY,
+      Math.max(1, barWidth - 2),
+      barHeight,
+      1.5,
+      1.5,
+      "F"
+    );
 
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(8.5);
+    pdf.setFontSize(compact ? 6.5 : 8);
+    pdf.setTextColor(...COLORES.azulUnemi);
+    pdf.text(`${value.toFixed(compact ? 1 : 2)}%`, x + barWidth / 2, barY - 1.5, {
+      align: "center",
+    });
+
+    const nombreLineas = pdf.splitTextToSize(
+      item.nombre,
+      barWidth + (compact ? 6 : 8)
+    ) as string[];
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(compact ? 6.2 : 8);
     pdf.setTextColor(...COLORES.azulUnemi);
 
-    const nombreLineas = pdf.splitTextToSize(item.nombre, barWidth + 8) as string[];
-    const nombreY = baseY + 6;
-    nombreLineas.slice(0, 3).forEach((line, lineIdx) => {
-      pdf.text(line, x + barWidth / 2, nombreY + lineIdx * 4, {
+    const nombreY = baseY + 4;
+
+    nombreLineas.slice(0, compact ? 2 : 3).forEach((line, lineIdx) => {
+      pdf.text(line, x + barWidth / 2, nombreY + lineIdx * 3.4, {
         align: "center",
       });
     });
 
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(8);
-    pdf.setTextColor(...COLORES.gris);
+    if (!compact) {
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(...COLORES.gris);
 
-    const infoStartY = baseY + 6 + Math.min(nombreLineas.length, 3) * 4 + 2;
-    pdf.text(`Resp.: ${item.totalRespuestas ?? 0}`, x + barWidth / 2, infoStartY, {
-      align: "center",
-    });
-    pdf.text(
-      `Aciertos: ${item.totalAciertos ?? 0}`,
-      x + barWidth / 2,
-      infoStartY + 4,
-      { align: "center" }
-    );
+      const infoStartY = baseY + 6 + Math.min(nombreLineas.length, 3) * 4 + 2;
+
+      pdf.text(`Resp.: ${item.totalRespuestas ?? 0}`, x + barWidth / 2, infoStartY, {
+        align: "center",
+      });
+
+      pdf.text(
+        `Aciertos: ${item.totalAciertos ?? 0}`,
+        x + barWidth / 2,
+        infoStartY + 4,
+        { align: "center" }
+      );
+    }
   });
 
-  return baseY + labelAreaHeight + 10;
+  return baseY + labelAreaHeight + (compact ? 5 : 8);
 };
 
 const drawPreguntasDificilesTable = (
@@ -1091,20 +1145,13 @@ const getDefaultMetodologiaSection = (data: ReporteData): ReportCustomSection =>
 });
 
 const buildOrderedSections = (data: ReporteData): NumberedSection[] => {
-  const introduccionSection =
-    data.introduccionPersonalizada ?? getDefaultIntroduccionSection(data);
-  const antecedentesSection =
-    data.antecedentesPersonalizados ?? getDefaultAntecedentesSection();
-  const motivacionSection =
-    data.motivacionJuridicaPersonalizada ?? getDefaultMotivacionJuridicaSection();
-  const metodologiaSection =
-    data.metodologiaPersonalizada ?? getDefaultMetodologiaSection(data);
+  const usarDefault = data.usarSeccionesPorDefecto === true;
 
   const baseSections = [
-    introduccionSection,
-    antecedentesSection,
-    motivacionSection,
-    metodologiaSection,
+    data.introduccionPersonalizada,
+    data.antecedentesPersonalizados,
+    data.motivacionJuridicaPersonalizada,
+    data.metodologiaPersonalizada,
   ].filter(
     (section): section is ReportCustomSection =>
       !!section &&
@@ -1113,8 +1160,21 @@ const buildOrderedSections = (data: ReporteData): NumberedSection[] => {
       section.blocks.some((b) => String(b.text ?? "").trim())
   );
 
-  return baseSections.map((section, index) => {
+  const finalSections =
+    baseSections.length > 0
+      ? baseSections
+      : usarDefault
+        ? [
+            getDefaultIntroduccionSection(data),
+            getDefaultAntecedentesSection(),
+            getDefaultMotivacionJuridicaSection(),
+            getDefaultMetodologiaSection(data),
+          ]
+        : [];
+
+  return finalSections.map((section, index) => {
     const plainTitle = stripSectionNumber(section.title);
+
     return {
       ...section,
       plainTitle,
@@ -1247,6 +1307,57 @@ const drawCoverPage = (
   );
 };
 
+const getNivelOrden = (nivel: string) => {
+  const value = String(nivel ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+  const orden: Record<string, number> = {
+    primero: 1,
+    primer: 1,
+    segundo: 2,
+    tercero: 3,
+    tercer: 3,
+    cuarto: 4,
+    quinto: 5,
+    sexto: 6,
+    septimo: 7,
+    setimo: 7,
+    octavo: 8,
+    noveno: 9,
+    decimo: 10,
+    "decimo primero": 11,
+    undecimo: 11,
+    "decimo segundo": 12,
+    duodecimo: 12,
+  };
+
+  const numberMatch = value.match(/\d+/);
+  if (numberMatch) return Number(numberMatch[0]);
+
+  for (const [key, order] of Object.entries(orden)) {
+    if (value.includes(key)) return order;
+  }
+
+  return 999;
+};
+
+const sortByNivel = <T extends { nivel: string }>(items: T[]) => {
+  return [...items].sort((a, b) => {
+    const orderA = getNivelOrden(a.nivel);
+    const orderB = getNivelOrden(b.nivel);
+
+    if (orderA !== orderB) return orderA - orderB;
+
+    return String(a.nivel).localeCompare(String(b.nivel), "es", {
+      sensitivity: "base",
+      numeric: true,
+    });
+  });
+};
+
 export const generarReportePDF = async (
   data: ReporteData,
   images: ReporteImages
@@ -1340,9 +1451,12 @@ export const generarReportePDF = async (
     pageState
   );
 
+  const tablaDistribucionPrincipal = 1;
+  let tablaDistribucionSubIndex = 1;
+
   y = drawSubsectionTitleWithTableGuard(
     pdf,
-    "Tabla 1. Distribución de estudiantes según rangos de calificación",
+    `Tabla ${tablaDistribucionPrincipal}. Distribución de estudiantes según rangos de calificación`,
     y,
     10,
     images,
@@ -1357,6 +1471,31 @@ export const generarReportePDF = async (
     pageState
   );
 
+  if (data.distribucionPorNivel?.length) {
+    for (const grupo of sortByNivel(data.distribucionPorNivel)) {
+      if (!grupo.distribucion.length) continue;
+
+      y = drawSubsectionTitleWithTableGuard(
+        pdf,
+        `Tabla ${tablaDistribucionPrincipal}.${tablaDistribucionSubIndex}. Distribución de estudiantes según rangos de calificación - ${grupo.nivel} Semestre`,
+        y,
+        10,
+        images,
+        pageState
+      );
+
+      y = drawDistribucionTable(
+        pdf,
+        grupo.distribucion,
+        y,
+        images,
+        pageState
+      );
+
+      tablaDistribucionSubIndex += 1;
+    }
+  }
+
   y = drawBarChart(
     pdf,
     "Rendimiento por componente",
@@ -1366,9 +1505,28 @@ export const generarReportePDF = async (
     pageState
   );
 
+  if (data.componentesPorNivel?.length) {
+    for (const grupo of sortByNivel(data.componentesPorNivel)) {
+      if (!grupo.componentes.length) continue;
+
+      y = drawBarChart(
+        pdf,
+        `Rendimiento por componente - ${grupo.nivel} Semestre`,
+        grupo.componentes,
+        y,
+        images,
+        pageState,
+        { compact: true }
+      );
+    }
+  }
+
+  const tablaPreguntasPrincipal = 2;
+  let tablaPreguntasSubIndex = 1;
+
   y = drawSubsectionTitleWithTableGuard(
     pdf,
-    "Preguntas con mayor dificultad",
+    `Tabla ${tablaPreguntasPrincipal}. Preguntas con mayor dificultad`,
     y,
     12,
     images,
@@ -1382,6 +1540,31 @@ export const generarReportePDF = async (
     images,
     pageState
   );
+
+  if (data.preguntasDificilesPorNivel?.length) {
+    for (const grupo of sortByNivel(data.preguntasDificilesPorNivel)) {
+      if (!grupo.preguntas.length) continue;
+
+      y = drawSubsectionTitleWithTableGuard(
+        pdf,
+        `Tabla ${tablaPreguntasPrincipal}.${tablaPreguntasSubIndex}. Preguntas con mayor dificultad - ${grupo.nivel} Semestre`,
+        y,
+        12,
+        images,
+        pageState
+      );
+
+      y = drawPreguntasDificilesTable(
+        pdf,
+        grupo.preguntas.slice(0, 5),
+        y,
+        images,
+        pageState
+      );
+
+      tablaPreguntasSubIndex += 1;
+    }
+  }
 
   y = drawSectionTitle(
     pdf,

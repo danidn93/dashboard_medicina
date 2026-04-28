@@ -294,25 +294,14 @@ const SummaryStep = ({ wizardData, onBack, datasetId }: SummaryStepProps) => {
     setIsProcessing(true);
 
     try {
-      const questionsSheet = usableSheets.find((s) => s.role === "PREGUNTAS");
-      const attemptsSheet = usableSheets.find((s) => s.role === "INTENTOS");
+      const questionsSheets = usableSheets.filter((s) => s.role === "PREGUNTAS");
+      const attemptsSheets = usableSheets.filter((s) => s.role === "INTENTOS");
 
-      if (!questionsSheet || !attemptsSheet) {
+      if (questionsSheets.length === 0 || attemptsSheets.length === 0) {
         throw new Error(
-          'Debes tener una hoja "PREGUNTAS" y una hoja "INTENTOS".'
+          'Debes tener al menos una hoja "PREGUNTAS" y una hoja "INTENTOS".'
         );
       }
-
-      const correctAnswersRow = findCorrectAnswersRow(attemptsSheet.rows);
-      if (!correctAnswersRow) {
-        throw new Error(
-          'No se encontró la fila "RESPUESTA CORRECTA" en la hoja de intentos.'
-        );
-      }
-
-      const studentRows = attemptsSheet.rows.filter(
-        (row) => !isCorrectAnswersRow(row)
-      );
 
       const { data: lastVersionData, error: lastVersionError } = await supabase
         .from("exam_dataset_versions")
@@ -342,100 +331,112 @@ const SummaryStep = ({ wizardData, onBack, datasetId }: SummaryStepProps) => {
 
       const versionId = versionData.id as string;
 
-      const questionRowsPrepared = questionsSheet.rows.map((row) => {
-        const numeroPregunta = Number(
-          getCellValue(
+      const allQuestionRowsPrepared = questionsSheets.flatMap((questionsSheet) => {
+        return questionsSheet.rows.map((row) => {
+          const numeroPregunta = Number(
+            getCellValue(
+              row,
+              questionsSheet.headers,
+              questionsSheet.columnMap,
+              "NUMERO_PREGUNTA"
+            )
+          );
+
+          const preguntaRaw = getCellValue(
             row,
             questionsSheet.headers,
             questionsSheet.columnMap,
-            "NUMERO_PREGUNTA"
-          )
-        );
+            "PREGUNTA_RAW"
+          );
 
-        const preguntaRaw = getCellValue(
-          row,
-          questionsSheet.headers,
-          questionsSheet.columnMap,
-          "PREGUNTA_RAW"
-        );
+          const respuestaCorrecta = getCellValue(
+            row,
+            questionsSheet.headers,
+            questionsSheet.columnMap,
+            "RESPUESTA_CORRECTA"
+          );
 
-        const respuestaCorrecta = getCellValue(
-          row,
-          questionsSheet.headers,
-          questionsSheet.columnMap,
-          "RESPUESTA_CORRECTA"
-        );
+          const componente = getCellValue(
+            row,
+            questionsSheet.headers,
+            questionsSheet.columnMap,
+            "COMPONENTE"
+          );
 
-        const componente = getCellValue(
-          row,
-          questionsSheet.headers,
-          questionsSheet.columnMap,
-          "COMPONENTE"
-        );
+          const subcomponente = getCellValue(
+            row,
+            questionsSheet.headers,
+            questionsSheet.columnMap,
+            "SUBCOMPONENTE"
+          );
 
-        const subcomponente = getCellValue(
-          row,
-          questionsSheet.headers,
-          questionsSheet.columnMap,
-          "SUBCOMPONENTE"
-        );
+          const tema = getCellValue(
+            row,
+            questionsSheet.headers,
+            questionsSheet.columnMap,
+            "TEMA"
+          );
 
-        const tema = getCellValue(
-          row,
-          questionsSheet.headers,
-          questionsSheet.columnMap,
-          "TEMA"
-        );
+          const nivel = getCellValue(
+            row,
+            questionsSheet.headers,
+            questionsSheet.columnMap,
+            "NIVEL"
+          );
 
-        const nivel = getCellValue(
-          row,
-          questionsSheet.headers,
-          questionsSheet.columnMap,
-          "NIVEL"
-        );
+          const asignatura = getCellValue(
+            row,
+            questionsSheet.headers,
+            questionsSheet.columnMap,
+            "ASIGNATURA"
+          );
 
-        const docente = getCellValue(
-          row,
-          questionsSheet.headers,
-          questionsSheet.columnMap,
-          "DOCENTE"
-        );
+          const docente = getCellValue(
+            row,
+            questionsSheet.headers,
+            questionsSheet.columnMap,
+            "DOCENTE"
+          );
 
-        const justificacion = getCellValue(
-          row,
-          questionsSheet.headers,
-          questionsSheet.columnMap,
-          "JUSTIFICACION"
-        );
+          const justificacion = getCellValue(
+            row,
+            questionsSheet.headers,
+            questionsSheet.columnMap,
+            "JUSTIFICACION"
+          );
 
-        const { enunciado, opciones } = splitQuestionAndOptions(preguntaRaw);
-        const correctIndex = findCorrectOptionIndex(respuestaCorrecta, opciones);
+          const { enunciado, opciones } = splitQuestionAndOptions(preguntaRaw);
+          const correctIndex = findCorrectOptionIndex(respuestaCorrecta, opciones);
 
-        return {
-          id: crypto.randomUUID(),
-          version_id: versionId,
-          numero_pregunta: numeroPregunta,
-          pregunta_raw: preguntaRaw,
-          enunciado: enunciado || null,
-          componente: componente || null,
-          subcomponente: subcomponente || null,
-          tema: tema || null,
-          nivel: nivel || null,
-          docente: docente || null,
-          justificacion: justificacion || null,
-          tipo_pregunta: "opcion_multiple",
-          respuesta_correcta_texto: respuestaCorrecta || null,
-          opciones: opciones.map((texto, index) => ({
+          return {
             id: crypto.randomUUID(),
-            pregunta_id: "" as string,
-            orden: index + 1,
-            texto,
-            es_correcta: correctIndex === index,
-          })),
-        };
+            version_id: versionId,
+            numero_pregunta: numeroPregunta,
+            pregunta_raw: preguntaRaw,
+            enunciado: enunciado || null,
+            componente: componente || null,
+            subcomponente: subcomponente || null,
+            tema: tema || null,
+
+            // Si tu mapeo usa ASIGNATURA como equivalente de NIVEL:
+            nivel: nivel || asignatura || null,
+
+            docente: docente || null,
+            justificacion: justificacion || null,
+            tipo_pregunta: "opcion_multiple",
+            respuesta_correcta_texto: respuestaCorrecta || null,
+            opciones: opciones.map((texto, index) => ({
+              id: crypto.randomUUID(),
+              pregunta_id: "" as string,
+              orden: index + 1,
+              texto,
+              es_correcta: correctIndex === index,
+            })),
+          };
+        });
       });
 
-      const validQuestions = questionRowsPrepared.filter(
+      const validQuestions = allQuestionRowsPrepared.filter(
         (q) => q.numero_pregunta > 0 && q.pregunta_raw
       );
 
@@ -444,7 +445,10 @@ const SummaryStep = ({ wizardData, onBack, datasetId }: SummaryStepProps) => {
       }
 
       for (const chunk of chunkArray(validQuestions, BATCH_SIZE)) {
-        const payload = chunk.map(({ opciones, respuesta_correcta_texto, ...question }) => question);
+        const payload = chunk.map(
+          ({ opciones, respuesta_correcta_texto, ...question }) => question
+        );
+
         const { error } = await supabase.from("preguntas").insert(payload);
         if (error) throw error;
       }
@@ -488,178 +492,229 @@ const SummaryStep = ({ wizardData, onBack, datasetId }: SummaryStepProps) => {
         });
       });
 
-      const responseColumns = detectResponseColumns(attemptsSheet.headers);
+      const allValidAttempts: Array<any> = [];
+      const allAttemptResponsesPayload: Array<any> = [];
 
-      const preparedAttempts = studentRows.map((row) => {
-        const comenzadoRaw = getCellValue(
-          row,
-          attemptsSheet.headers,
-          attemptsSheet.columnMap,
-          "COMENZADO_EL"
+      for (const attemptsSheet of attemptsSheets) {
+        const correctAnswersRow = findCorrectAnswersRow(attemptsSheet.rows);
+
+        if (!correctAnswersRow) {
+          throw new Error(
+            `No se encontró la fila "RESPUESTA CORRECTA" en la hoja "${attemptsSheet.sheetName}".`
+          );
+        }
+
+        const studentRows = attemptsSheet.rows.filter(
+          (row) => !isCorrectAnswersRow(row)
         );
 
-        const finalizadoRaw = getCellValue(
-          row,
-          attemptsSheet.headers,
-          attemptsSheet.columnMap,
-          "FINALIZADO_EL"
-        );
+        const responseColumns = detectResponseColumns(attemptsSheet.headers);
 
-        const tiempoRequeridoRaw = getCellValue(
-          row,
-          attemptsSheet.headers,
-          attemptsSheet.columnMap,
-          "TIEMPO_REQUERIDO_TEXTO"
-        );
-
-        return {
-          id: crypto.randomUUID(),
-          version_id: versionId,
-          apellidos: getCellValue(
+        const preparedAttempts = studentRows.map((row) => {
+          const comenzadoRaw = getCellValue(
             row,
             attemptsSheet.headers,
             attemptsSheet.columnMap,
-            "APELLIDOS"
-          ),
-          nombres: getCellValue(
+            "COMENZADO_EL"
+          );
+
+          const finalizadoRaw = getCellValue(
             row,
             attemptsSheet.headers,
             attemptsSheet.columnMap,
-            "NOMBRES"
-          ),
-          correo:
-            getCellValue(
+            "FINALIZADO_EL"
+          );
+
+          const tiempoRequeridoRaw = getCellValue(
+            row,
+            attemptsSheet.headers,
+            attemptsSheet.columnMap,
+            "TIEMPO_REQUERIDO_TEXTO"
+          );
+
+          return {
+            id: crypto.randomUUID(),
+            version_id: versionId,
+            apellidos: getCellValue(
               row,
               attemptsSheet.headers,
               attemptsSheet.columnMap,
-              "CORREO"
-            ) || null,
-          estado:
-            getCellValue(
+              "APELLIDOS"
+            ),
+            nombres: getCellValue(
               row,
               attemptsSheet.headers,
               attemptsSheet.columnMap,
-              "ESTADO"
-            ) || null,
-          comenzado_el: parseAnyDateToISO(comenzadoRaw),
-          finalizado_el: parseAnyDateToISO(finalizadoRaw),
-          tiempo_requerido_texto: tiempoRequeridoRaw || null,
-          tiempo_requerido_segundos: parseDurationToSeconds(tiempoRequeridoRaw),
-          calificacion_total: (() => {
-            const value = getCellValue(
-              row,
-              attemptsSheet.headers,
-              attemptsSheet.columnMap,
-              "CALIFICACION_TOTAL"
+              "NOMBRES"
+            ),
+            correo:
+              getCellValue(
+                row,
+                attemptsSheet.headers,
+                attemptsSheet.columnMap,
+                "CORREO"
+              ) || null,
+            estado:
+              getCellValue(
+                row,
+                attemptsSheet.headers,
+                attemptsSheet.columnMap,
+                "ESTADO"
+              ) || null,
+            comenzado_el: parseAnyDateToISO(comenzadoRaw),
+            finalizado_el: parseAnyDateToISO(finalizadoRaw),
+            tiempo_requerido_texto: tiempoRequeridoRaw || null,
+            tiempo_requerido_segundos: parseDurationToSeconds(tiempoRequeridoRaw),
+            calificacion_total: (() => {
+              const value = getCellValue(
+                row,
+                attemptsSheet.headers,
+                attemptsSheet.columnMap,
+                "CALIFICACION_TOTAL"
+              );
+              const n = Number(String(value).replace(",", "."));
+              return Number.isFinite(n) ? n : null;
+            })(),
+
+            // ✅ Esto era lo que faltaba para guardar public.intentos.nivel
+            nivel:
+              getCellValue(
+                row,
+                attemptsSheet.headers,
+                attemptsSheet.columnMap,
+                "NIVEL"
+              ) || null,
+
+            rawRow: row,
+            headers: attemptsSheet.headers,
+            correctAnswersRow,
+            responseColumns,
+          };
+        });
+
+        const validAttempts = preparedAttempts.filter(
+          (a) => a.apellidos && a.nombres
+        );
+
+        allValidAttempts.push(...validAttempts);
+
+        const attemptResponsesPayload = validAttempts.flatMap((attempt) => {
+          return attempt.responseColumns.flatMap((responseCol: any) => {
+            const questionRef = questionMapByNumber.get(
+              responseCol.questionNumber
             );
-            const n = Number(String(value).replace(",", "."));
-            return Number.isFinite(n) ? n : null;
-          })(),
-          rawRow: row,
-        };
-      });
 
-      const validAttempts = preparedAttempts.filter(
-        (a) => a.apellidos && a.nombres
-      );
+            if (!questionRef) return [];
 
-      if (validAttempts.length === 0) {
+            const colIndex = attempt.headers.indexOf(responseCol.header);
+            if (colIndex === -1) return [];
+
+            const respuestaRaw = String(attempt.rawRow[colIndex] ?? "").trim();
+            const respuestaNormalizada = normalizeText(respuestaRaw);
+
+            const respuestaCorrectaRaw = String(
+              attempt.correctAnswersRow[colIndex] ?? ""
+            ).trim();
+
+            const respuestaCorrectaNormalizada =
+              normalizeText(respuestaCorrectaRaw);
+
+            let matchedOption:
+              | {
+                  id: string;
+                  orden: number;
+                  texto: string;
+                  es_correcta: boolean;
+                }
+              | null = null;
+
+            if (/^[a-z]$/.test(respuestaNormalizada)) {
+              const index = respuestaNormalizada.charCodeAt(0) - 97;
+              matchedOption = questionRef.opciones[index] || null;
+            } else if (/^\d+$/.test(respuestaNormalizada)) {
+              const index = Number(respuestaNormalizada) - 1;
+              matchedOption = questionRef.opciones[index] || null;
+            }
+
+            if (!matchedOption) {
+              matchedOption =
+                questionRef.opciones.find(
+                  (op) => normalizeText(op.texto) === respuestaNormalizada
+                ) || null;
+            }
+
+            if (!matchedOption && respuestaNormalizada.length > 2) {
+              matchedOption =
+                questionRef.opciones.find((op) => {
+                  const normalizedOption = normalizeText(op.texto);
+                  return (
+                    normalizedOption.includes(respuestaNormalizada) ||
+                    respuestaNormalizada.includes(normalizedOption)
+                  );
+                }) || null;
+            }
+
+            const normalizedCorrectFromBank = normalizeText(
+              questionRef.respuestaCorrectaBanco ?? ""
+            );
+
+            const esCorrecta =
+              !!respuestaNormalizada &&
+              (respuestaNormalizada === respuestaCorrectaNormalizada ||
+                respuestaNormalizada === normalizedCorrectFromBank ||
+                (respuestaCorrectaNormalizada &&
+                  (respuestaCorrectaNormalizada.includes(
+                    respuestaNormalizada
+                  ) ||
+                    respuestaNormalizada.includes(
+                      respuestaCorrectaNormalizada
+                    ))) ||
+                (normalizedCorrectFromBank &&
+                  (normalizedCorrectFromBank.includes(respuestaNormalizada) ||
+                    respuestaNormalizada.includes(normalizedCorrectFromBank))));
+
+            return [
+              {
+                id: crypto.randomUUID(),
+                intento_id: attempt.id,
+                pregunta_id: questionRef.id,
+                opcion_id: matchedOption?.id ?? null,
+                respuesta_estudiante_raw: respuestaRaw || null,
+                respuesta_estudiante_normalizada: respuestaNormalizada || null,
+                es_correcta: esCorrecta,
+                puntaje_obtenido: esCorrecta ? 1 : 0,
+              },
+            ];
+          });
+        });
+
+        allAttemptResponsesPayload.push(...attemptResponsesPayload);
+      }
+
+      if (allValidAttempts.length === 0) {
         throw new Error("No se encontraron intentos válidos para importar.");
       }
 
-      for (const chunk of chunkArray(validAttempts, BATCH_SIZE)) {
-        const payload = chunk.map(({ rawRow, ...attempt }) => attempt);
+      for (const chunk of chunkArray(allValidAttempts, BATCH_SIZE)) {
+        const payload = chunk.map(
+          ({
+            rawRow,
+            headers,
+            correctAnswersRow,
+            responseColumns,
+            ...attempt
+          }) => attempt
+        );
+
         const { error } = await supabase.from("intentos").insert(payload);
         if (error) throw error;
       }
 
-      const attemptResponsesPayload = validAttempts.flatMap((attempt) => {
-        return responseColumns.flatMap((responseCol) => {
-          const questionRef = questionMapByNumber.get(responseCol.questionNumber);
-          if (!questionRef) return [];
-
-          const colIndex = attemptsSheet.headers.indexOf(responseCol.header);
-          if (colIndex === -1) return [];
-
-          const respuestaRaw = String(attempt.rawRow[colIndex] ?? "").trim();
-          const respuestaNormalizada = normalizeText(respuestaRaw);
-
-          const respuestaCorrectaRaw = String(correctAnswersRow[colIndex] ?? "").trim();
-          const respuestaCorrectaNormalizada = normalizeText(respuestaCorrectaRaw);
-
-          let matchedOption: {
-            id: string;
-            orden: number;
-            texto: string;
-            es_correcta: boolean;
-          } | null = null;
-
-          if (/^[a-z]$/.test(respuestaNormalizada)) {
-            const index = respuestaNormalizada.charCodeAt(0) - 97;
-            matchedOption = questionRef.opciones[index] || null;
-          } else if (/^\d+$/.test(respuestaNormalizada)) {
-            const index = Number(respuestaNormalizada) - 1;
-            matchedOption = questionRef.opciones[index] || null;
-          }
-
-          if (!matchedOption) {
-            matchedOption =
-              questionRef.opciones.find(
-                (op) => normalizeText(op.texto) === respuestaNormalizada
-              ) || null;
-          }
-
-          if (!matchedOption && respuestaNormalizada.length > 2) {
-            matchedOption =
-              questionRef.opciones.find((op) => {
-                const normalizedOption = normalizeText(op.texto);
-                return (
-                  normalizedOption.includes(respuestaNormalizada) ||
-                  respuestaNormalizada.includes(normalizedOption)
-                );
-              }) || null;
-          }
-
-          const normalizedCorrectFromBank = normalizeText(
-            questionRef.respuestaCorrectaBanco ?? ""
-          );
-
-          const esCorrecta =
-            !!respuestaNormalizada &&
-            (
-              respuestaNormalizada === respuestaCorrectaNormalizada ||
-              respuestaNormalizada === normalizedCorrectFromBank ||
-              (respuestaCorrectaNormalizada &&
-                (
-                  respuestaCorrectaNormalizada.includes(respuestaNormalizada) ||
-                  respuestaNormalizada.includes(respuestaCorrectaNormalizada)
-                )) ||
-              (normalizedCorrectFromBank &&
-                (
-                  normalizedCorrectFromBank.includes(respuestaNormalizada) ||
-                  respuestaNormalizada.includes(normalizedCorrectFromBank)
-                ))
-            );
-
-          return [
-            {
-              id: crypto.randomUUID(),
-              intento_id: attempt.id,
-              pregunta_id: questionRef.id,
-              opcion_id: matchedOption?.id ?? null,
-              respuesta_estudiante_raw: respuestaRaw || null,
-              respuesta_estudiante_normalizada: respuestaNormalizada || null,
-              es_correcta: esCorrecta,
-              puntaje_obtenido: esCorrecta ? 1 : 0,
-            },
-          ];
-        });
-      });
-
-      for (const chunk of chunkArray(attemptResponsesPayload, BATCH_SIZE)) {
+      for (const chunk of chunkArray(allAttemptResponsesPayload, BATCH_SIZE)) {
         const { error } = await supabase
           .from("intento_respuestas")
           .insert(chunk);
+
         if (error) throw error;
       }
 
@@ -667,7 +722,7 @@ const SummaryStep = ({ wizardData, onBack, datasetId }: SummaryStepProps) => {
         .from("exam_dataset_versions")
         .update({
           total_preguntas: validQuestions.length,
-          total_intentos: validAttempts.length,
+          total_intentos: allValidAttempts.length,
         })
         .eq("id", versionId);
 

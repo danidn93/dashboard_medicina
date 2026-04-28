@@ -16,6 +16,31 @@ function clampStr(s: string, max = 14000) {
   return s.length > max ? s.slice(0, max) + "\n...[TRUNCADO]" : s;
 }
 
+function percent(part: number, total: number) {
+  return total ? (part / total) * 100 : 0;
+}
+
+function average(values: number[]) {
+  return values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0;
+}
+
+function safeName(value: unknown, fallback = "Sin nivel") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function chunkArray<T>(array: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+
+  return chunks;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -118,6 +143,7 @@ serve(async (req) => {
         nombres,
         correo,
         estado,
+        nivel,
         tiempo_requerido_segundos,
         calificacion_total
       `)
@@ -131,46 +157,88 @@ serve(async (req) => {
 
     // 4. Traer respuestas
     let respuestas: any[] = [];
+
     if (intentoIds.length > 0) {
-      const { data: respuestasData, error: respuestasError } = await supabase
-        .from("intento_respuestas")
-        .select(`
-          id,
-          intento_id,
-          pregunta_id,
-          opcion_id,
-          es_correcta,
-          puntaje_obtenido,
-          respuesta_estudiante_raw,
-          respuesta_estudiante_normalizada
-        `)
-        .in("intento_id", intentoIds);
+      for (const chunk of chunkArray(intentoIds, 100)) {
+        const { data: respuestasData, error: respuestasError } = await supabase
+          .from("intento_respuestas")
+          .select(`
+            id,
+            intento_id,
+            pregunta_id,
+            opcion_id,
+            es_correcta,
+            puntaje_obtenido,
+            respuesta_estudiante_raw,
+            respuesta_estudiante_normalizada
+          `)
+          .in("intento_id", chunk);
 
-      if (respuestasError) {
-        throw respuestasError;
+        if (respuestasError) {
+          throw respuestasError;
+        }
+
+        respuestas.push(...(respuestasData ?? []));
       }
-
-      respuestas = respuestasData ?? [];
     }
 
     const preguntasMap = new Map((preguntas ?? []).map((p) => [p.id, p]));
-
-    const percent = (part: number, total: number) => (total ? (part / total) * 100 : 0);
 
     // 5. Métricas globales
     const calificaciones = safeArray<any>(intentos)
       .map((i) => Number(i.calificacion_total))
       .filter((n) => Number.isFinite(n));
 
-    const promedioGeneral = calificaciones.length
-      ? calificaciones.reduce((a, b) => a + b, 0) / calificaciones.length
-      : 0;
+    const promedioGeneral = average(calificaciones);
 
     const aprobados = calificaciones.filter((n) => n >= 70).length;
     const porcentajeAprobacion = percent(aprobados, calificaciones.length);
 
     const totalAciertos = respuestas.filter((r) => r.es_correcta === true).length;
     const aciertoGlobal = percent(totalAciertos, respuestas.length);
+
+    const groupedByNivel = new Map<
+      string,
+      {
+        nivel: string;
+        calificaciones: number[];
+        totalEstudiantes: number;
+      }
+    >();
+
+    for (const intento of safeArray<any>(intentos)) {
+      const nivel = safeName(intento.nivel, "Sin nivel");
+      const score = Number(intento.calificacion_total);
+
+      if (!Number.isFinite(score)) continue;
+
+      if (!groupedByNivel.has(nivel)) {
+        groupedByNivel.set(nivel, {
+          nivel,
+          calificaciones: [],
+          totalEstudiantes: 0,
+        });
+      }
+
+      const item = groupedByNivel.get(nivel)!;
+      item.calificaciones.push(score);
+      item.totalEstudiantes += 1;
+    }
+
+    const promediosPorNivel = Array.from(groupedByNivel.values()).map((item) => ({
+      nivel: item.nivel,
+      promedio: average(item.calificaciones),
+      totalEstudiantes: item.totalEstudiantes,
+    }));
+
+    const promedioGeneralPorNiveles = average(
+      promediosPorNivel.map((item) => item.promedio)
+    );
+
+    const totalEstudiantesPorNiveles = promediosPorNivel.reduce(
+      (sum, item) => sum + item.totalEstudiantes,
+      0
+    );
 
     // 6. Rendimiento por componente
     const groupedByComponent = new Map<
@@ -289,10 +357,13 @@ serve(async (req) => {
       },
       metricas: {
         promedioGeneral,
+        promedioGeneralPorNiveles,
         porcentajeAprobacion,
         aciertoGlobal,
         totalEstudiantes: calificaciones.length,
+        totalEstudiantesPorNiveles,
       },
+      promediosPorNivel,
       distribucion,
       componentes,
       preguntasDificiles,
@@ -312,6 +383,9 @@ Reglas:
 - Cada recomendación debe ser accionable y coherente con los hallazgos.
 - No repitas ideas entre sí.
 - No inventes datos.
+- Cuando hables del promedio general institucional por niveles, usa metricas.promedioGeneralPorNiveles.
+- El promedio general por niveles se calcula como la suma de los promedios de cada semestre dividida para la cantidad de semestres.
+- No confundas promedioGeneral con promedioGeneralPorNiveles.
 - Devuelve SOLO JSON válido con esta estructura exacta:
 
 {

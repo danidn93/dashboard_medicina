@@ -954,18 +954,6 @@ const drawBarChart = (
       pdf.setFontSize(7.5);
       pdf.setTextColor(...COLORES.gris);
 
-      const infoStartY = baseY + 6 + Math.min(nombreLineas.length, 3) * 4 + 2;
-
-      pdf.text(`Resp.: ${item.totalRespuestas ?? 0}`, x + barWidth / 2, infoStartY, {
-        align: "center",
-      });
-
-      pdf.text(
-        `Aciertos: ${item.totalAciertos ?? 0}`,
-        x + barWidth / 2,
-        infoStartY + 4,
-        { align: "center" }
-      );
     }
   });
 

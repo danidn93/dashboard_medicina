@@ -225,6 +225,14 @@ function safeName(value: string | null | undefined, fallback: string) {
   return value?.trim() || fallback;
 }
 
+function splitAsignaturas(value: string | null | undefined): string[] {
+  return String(value ?? "")
+    .replace(/\r/g, "\n")
+    .split(/\n|;|\|/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function truncate(text: string | null | undefined, max = 180) {
   const t = String(text ?? "");
   return t.length > max ? `${t.slice(0, max)}…` : t;
@@ -866,6 +874,8 @@ function AsignaturasDocentesCard({
     aprobacion: number;
   }>;
 }) {
+  const hasDocentes = items.some((item) => item.docentes.length > 0);
+
   return (
     <Card className="border-slate-200 shadow-sm">
       <CardHeader>
@@ -886,7 +896,11 @@ function AsignaturasDocentesCard({
               <thead>
                 <tr className="border-b bg-slate-50 text-[#002E45]">
                   <th className="text-left p-3 font-semibold">Asignatura</th>
-                  <th className="text-left p-3 font-semibold">Docente(s)</th>
+
+                  {hasDocentes && (
+                    <th className="text-left p-3 font-semibold">Docente(s)</th>
+                  )}
+
                   <th className="text-right p-3 font-semibold">Preguntas</th>
                   <th className="text-right p-3 font-semibold">Aciertos</th>
                   <th className="text-right p-3 font-semibold">Respuestas</th>
@@ -901,19 +915,21 @@ function AsignaturasDocentesCard({
                       {item.asignatura}
                     </td>
 
-                    <td className="p-3 text-slate-600">
-                      {item.docentes.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {item.docentes.map((docente) => (
-                            <Badge key={docente} variant="outline">
-                              {docente}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-slate-400">Sin docente</span>
-                      )}
-                    </td>
+                    {hasDocentes && (
+                      <td className="p-3 text-slate-600">
+                        {item.docentes.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {item.docentes.map((docente) => (
+                              <Badge key={docente} variant="outline">
+                                {docente}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">Sin docente</span>
+                        )}
+                      </td>
+                    )}
 
                     <td className="p-3 text-right">
                       <Badge variant="outline">{item.totalPreguntas}</Badge>
@@ -1476,41 +1492,51 @@ export default function DashboardGerencial({
     >();
 
     for (const pregunta of preguntasFiltradas) {
-      const asignatura = safeName(pregunta.nivel, "Sin asignatura");
+      const asignaturas = splitAsignaturas(pregunta.nivel);
       const docente = safeName(pregunta.docente, "");
 
-      if (!map.has(asignatura)) {
-        map.set(asignatura, {
-          asignatura,
-          docentes: new Set<string>(),
-          totalPreguntas: new Set<string>(),
-          totalRespuestas: 0,
-          totalAciertos: 0,
-        });
+      for (const asignatura of asignaturas) {
+        if (!map.has(asignatura)) {
+          map.set(asignatura, {
+            asignatura,
+            docentes: new Set<string>(),
+            totalPreguntas: new Set<string>(),
+            totalRespuestas: 0,
+            totalAciertos: 0,
+          });
+        }
+
+        const item = map.get(asignatura)!;
+        item.totalPreguntas.add(pregunta.id);
+
+        if (docente) item.docentes.add(docente);
       }
-
-      const item = map.get(asignatura)!;
-      item.totalPreguntas.add(pregunta.id);
-
-      if (docente) item.docentes.add(docente);
     }
 
     for (const respuesta of respuestasFiltradas) {
       const pregunta = preguntasMapLocal.get(respuesta.pregunta_id);
       if (!pregunta) continue;
 
-      const asignatura = safeName(pregunta.nivel, "Sin asignatura");
-      const item = map.get(asignatura);
-      if (!item) continue;
+      const asignaturas = splitAsignaturas(pregunta.nivel);
 
-      item.totalRespuestas += 1;
-      if (respuesta.es_correcta === true) {
-        item.totalAciertos += 1;
+      for (const asignatura of asignaturas) {
+        const item = map.get(asignatura);
+        if (!item) continue;
+
+        item.totalRespuestas += 1;
+
+        if (respuesta.es_correcta === true) {
+          item.totalAciertos += 1;
+        }
       }
     }
 
     return Array.from(map.values())
-      .filter((item) => item.totalRespuestas > 0)
+      .filter(
+        (item) =>
+          item.totalRespuestas > 0 &&
+          item.asignatura.trim().toLowerCase() !== "sin asignatura"
+      )
       .map((item) => ({
         asignatura: item.asignatura,
         docentes: Array.from(item.docentes).sort((a, b) =>
@@ -2654,7 +2680,7 @@ ${topCriticos
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/*<div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <QuestionsCard
             title="Preguntas más difíciles"
             icon={<TrendingDown className="h-5 w-5" />}
@@ -2683,7 +2709,7 @@ ${topCriticos
               })
             }
           />
-        </div>
+        </div>*/}
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <RankingCard

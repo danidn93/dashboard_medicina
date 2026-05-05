@@ -36,6 +36,11 @@ export interface PreguntaResumenData {
   porcentaje: number;
 }
 
+export type ReportTableData = {
+  headers: string[];
+  rows: string[][];
+};
+
 export type ReportSectionBlock =
   | {
       type: "paragraph";
@@ -52,6 +57,11 @@ export type ReportSectionBlock =
   | {
       type: "article";
       text: string;
+    }
+  | {
+      type: "table";
+      text?: string;
+      table_data: ReportTableData;
     };
 
 export type ReportCustomSection = {
@@ -98,6 +108,8 @@ export interface PromedioPorNivelData {
   nivel: string;
   promedio: number;
   totalEstudiantes?: number;
+  aprobados?: number;
+  porcentajeAprobados?: number;
 }
 
 const COLORES = {
@@ -622,6 +634,105 @@ const drawTableHeader = (
   return y + headerHeight;
 };
 
+const drawCustomTable = (
+  pdf: jsPDF,
+  title: string,
+  tableData: ReportTableData | undefined,
+  y: number,
+  images: ReporteImages,
+  pageState: PageState
+) => {
+  if (!tableData?.headers?.length) return y;
+
+  const headers = tableData.headers.map((h) => String(h ?? "").trim() || " ");
+  const rows = Array.isArray(tableData.rows) ? tableData.rows : [];
+
+  if (title.trim()) {
+    y = drawSubsectionTitleWithTableGuard(
+      pdf,
+      title,
+      y,
+      14,
+      images,
+      pageState
+    );
+  }
+
+  const columnCount = headers.length;
+  const tableWidth = CONTENT_WIDTH;
+  const colWidth = tableWidth / columnCount;
+  const colWidths = headers.map(() => colWidth);
+  const startX = MARGIN_LEFT;
+  const headerHeight = 12;
+
+  const estimateRowHeight = (row: string[]) => {
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+
+    const lineCounts = headers.map((_, colIndex) => {
+      const value = String(row?.[colIndex] ?? "");
+      return (pdf.splitTextToSize(value, colWidth - 6) as string[]).length;
+    });
+
+    return Math.max(10, Math.max(...lineCounts) * 4 + 5);
+  };
+
+  const drawHeaderRow = () => {
+    if (y + headerHeight + 10 > BOTTOM_Y) {
+      y = startNewPage(pdf, images, pageState);
+    }
+
+    y = drawTableHeader(pdf, headers, colWidths, startX, y, headerHeight, 9);
+  };
+
+  drawHeaderRow();
+
+  rows.forEach((row, rowIndex) => {
+    const rowHeight = estimateRowHeight(row);
+
+    if (y + rowHeight > BOTTOM_Y) {
+      y = startNewPage(pdf, images, pageState);
+      drawHeaderRow();
+    }
+
+    const isTotal =
+      String(row?.[0] ?? "")
+        .trim()
+        .toLowerCase() === "total";
+
+    if (isTotal) {
+      pdf.setFillColor(...COLORES.naranja);
+    } else if (rowIndex % 2 === 0) {
+      pdf.setFillColor(...COLORES.grisClaro);
+    } else {
+      pdf.setFillColor(255, 255, 255);
+    }
+
+    pdf.rect(startX, y, tableWidth, rowHeight, "F");
+
+    let xRow = startX;
+
+    headers.forEach((_, colIndex) => {
+      const value = String(row?.[colIndex] ?? "");
+
+      pdf.rect(xRow, y, colWidth, rowHeight);
+      pdf.setFont("helvetica", isTotal ? "bold" : "normal");
+      pdf.setTextColor(isTotal ? 255 : 0);
+
+      drawCellTextCentered(pdf, value, xRow, y, colWidth, rowHeight, 9);
+
+      xRow += colWidth;
+    });
+
+    y += rowHeight;
+  });
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setTextColor(0, 0, 0);
+
+  return y + 5;
+};
+
 const drawSubsectionTitleWithTableGuard = (
   pdf: jsPDF,
   title: string,
@@ -655,40 +766,56 @@ const drawPromediosTable = (
     Number.isFinite(item.promedio)
   );
 
-  const promedioGeneralPorNiveles =
-    niveles.length > 0
-      ? niveles.reduce((sum, item) => sum + item.promedio, 0) / niveles.length
-      : 0;
-
   const totalEstudiantes = niveles.reduce(
     (sum, item) => sum + (item.totalEstudiantes ?? 0),
     0
   );
 
+  const totalAprobados = niveles.reduce(
+    (sum, item) => sum + (item.aprobados ?? 0),
+    0
+  );
+
+  const promedioGeneral =
+    niveles.length > 0
+      ? niveles.reduce((sum, item) => sum + item.promedio, 0) / niveles.length
+      : 0;
+
+  const porcentajeGeneralAprobados =
+    totalEstudiantes > 0 ? (totalAprobados / totalEstudiantes) * 100 : 0;
+
   const rows = [
     ...niveles,
     {
-      nivel: "Promedio general",
-      promedio: promedioGeneralPorNiveles,
+      nivel: "Total",
+      promedio: promedioGeneral,
       totalEstudiantes,
+      aprobados: totalAprobados,
+      porcentajeAprobados: porcentajeGeneralAprobados,
       isGeneral: true,
     },
   ];
 
-  const colWidths = [90, 45, 45];
+  const colWidths = [52, 34, 34, 34, 26];
   const headerHeight = 12;
   const rowHeight = 10;
   const totalWidth = colWidths.reduce((a, b) => a + b, 0);
   const startX = (PAGE_WIDTH - totalWidth) / 2;
 
-  const headers = ["Detalle", "Promedio", "Estudiantes"];
+  const headers = [
+    "Niveles",
+    "Estudiantes",
+    "Aprobados",
+    "% de Aprobados",
+    "Promedio",
+  ];
 
   const drawHeaderRow = () => {
     if (y + headerHeight + rowHeight > BOTTOM_Y) {
       y = startNewPage(pdf, images, pageState);
     }
 
-    y = drawTableHeader(pdf, headers, colWidths, startX, y, headerHeight, 10);
+    y = drawTableHeader(pdf, headers, colWidths, startX, y, headerHeight, 8.5);
   };
 
   drawHeaderRow();
@@ -699,8 +826,10 @@ const drawPromediosTable = (
       drawHeaderRow();
     }
 
-    if ("isGeneral" in row && row.isGeneral) {
-      pdf.setFillColor(255, 105, 0);
+    const isTotal = "isGeneral" in row && row.isGeneral;
+
+    if (isTotal) {
+      pdf.setFillColor(...COLORES.naranja);
     } else if (idx % 2 === 0) {
       pdf.setFillColor(...COLORES.grisClaro);
     } else {
@@ -711,8 +840,10 @@ const drawPromediosTable = (
 
     const values = [
       row.nivel,
+      String(row.totalEstudiantes ?? 0),
+      String(row.aprobados ?? 0),
+      `${(row.porcentajeAprobados ?? 0).toFixed(2)}%`,
       row.promedio.toFixed(2),
-      String(row.totalEstudiantes),
     ];
 
     let xRow = startX;
@@ -720,16 +851,19 @@ const drawPromediosTable = (
     values.forEach((value, i) => {
       pdf.rect(xRow, y, colWidths[i], rowHeight);
 
-      pdf.setFont("helvetica", "isGeneral" in row && row.isGeneral ? "bold" : "normal");
-      pdf.setTextColor("isGeneral" in row && row.isGeneral ? 255 : 0);
+      pdf.setFont("helvetica", isTotal ? "bold" : "normal");
+      pdf.setTextColor(isTotal ? 255 : 0);
 
-      drawCellTextCentered(pdf, value, xRow, y, colWidths[i], rowHeight, 10);
+      drawCellTextCentered(pdf, value, xRow, y, colWidths[i], rowHeight, 8.5);
 
       xRow += colWidths[i];
     });
 
     y += rowHeight;
   });
+
+  pdf.setTextColor(0, 0, 0);
+  pdf.setFont("helvetica", "normal");
 
   return y + 6;
 };
@@ -773,47 +907,65 @@ const drawDistribucionTable = (
 ) => {
   const normalizedData = normalizeDistribucion(data);
 
+  const totalFrecuencia = normalizedData.reduce(
+    (sum, row) => sum + (row.frecuencia ?? 0),
+    0
+  );
+
+  const totalPorcentaje = normalizedData.reduce(
+    (sum, row) => sum + (row.porcentaje ?? 0),
+    0
+  );
+
+  const rows = [
+    ...normalizedData,
+    {
+      rango: "Total",
+      frecuencia: totalFrecuencia,
+      porcentaje: totalPorcentaje,
+      isTotal: true,
+    },
+  ];
+
   const colWidths = [78, 56, 46];
   const headerHeight = 12;
   const rowHeight = 10;
   const totalWidth = colWidths.reduce((a, b) => a + b, 0);
   const startX = (PAGE_WIDTH - totalWidth) / 2;
+
   const headers = [
     "Rango de calificación",
-    "Frecuencia (f)",
+    "Estudiantes (e)",
     "Porcentaje (%)",
   ];
 
-  const ensureTableHeaderSpace = () => {
+  const drawHeaderRow = () => {
     if (y + headerHeight + rowHeight > BOTTOM_Y) {
       y = startNewPage(pdf, images, pageState);
     }
-  };
 
-  const drawHeaderRow = () => {
-    ensureTableHeaderSpace();
     y = drawTableHeader(pdf, headers, colWidths, startX, y, headerHeight, 10);
   };
 
   drawHeaderRow();
 
-  pdf.setFont("helvetica", "normal");
-  pdf.setTextColor(0, 0, 0);
-
-  normalizedData.forEach((row, idx) => {
+  rows.forEach((row, idx) => {
     if (y + rowHeight > BOTTOM_Y) {
       y = startNewPage(pdf, images, pageState);
       drawHeaderRow();
-      pdf.setFont("helvetica", "normal");
-      pdf.setTextColor(0, 0, 0);
     }
 
-    let xRow = startX;
+    const isTotal = "isTotal" in row && row.isTotal;
 
-    if (idx % 2 === 0) {
+    if (isTotal) {
+      pdf.setFillColor(...COLORES.naranja);
+    } else if (idx % 2 === 0) {
       pdf.setFillColor(...COLORES.grisClaro);
-      pdf.rect(startX, y, totalWidth, rowHeight, "F");
+    } else {
+      pdf.setFillColor(255, 255, 255);
     }
+
+    pdf.rect(startX, y, totalWidth, rowHeight, "F");
 
     const values = [
       row.rango,
@@ -821,14 +973,24 @@ const drawDistribucionTable = (
       `${row.porcentaje.toFixed(1)}%`,
     ];
 
+    let xRow = startX;
+
     values.forEach((value, i) => {
       pdf.rect(xRow, y, colWidths[i], rowHeight);
+
+      pdf.setFont("helvetica", isTotal ? "bold" : "normal");
+      pdf.setTextColor(isTotal ? 255 : 0);
+
       drawCellTextCentered(pdf, value, xRow, y, colWidths[i], rowHeight, 10);
+
       xRow += colWidths[i];
     });
 
     y += rowHeight;
   });
+
+  pdf.setTextColor(0, 0, 0);
+  pdf.setFont("helvetica", "normal");
 
   return y + 4;
 };
@@ -1127,6 +1289,12 @@ const estimateSectionHeight = (
   pdf.setFont("helvetica", "bold");
 
   for (const block of section.blocks) {
+    if (block.type === "table") {
+      const rows = block.table_data?.rows?.length ?? 0;
+      total += 18 + rows * 10;
+      continue;
+    }
+
     const text = String(block.text ?? "").trim();
     if (!text) continue;
 
@@ -1273,7 +1441,18 @@ const buildOrderedSections = (data: ReporteData): NumberedSection[] => {
       !!section &&
       !!String(section.title ?? "").trim() &&
       Array.isArray(section.blocks) &&
-      section.blocks.some((b) => String(b.text ?? "").trim())
+      section.blocks.some((b) => {
+        if (b.type === "table") {
+          return (
+            Array.isArray(b.table_data?.headers) &&
+            b.table_data.headers.length > 0 &&
+            Array.isArray(b.table_data?.rows) &&
+            b.table_data.rows.length > 0
+          );
+        }
+
+        return String(b.text ?? "").trim();
+      })
   );
 
   const finalSections =
@@ -1331,6 +1510,21 @@ const drawDynamicSection = (
   };
 
   for (const block of section.blocks) {
+    if (block.type === "table") {
+      flushBullets();
+
+      y = drawCustomTable(
+        pdf,
+        String(block.text ?? "").trim(),
+        block.table_data,
+        y,
+        images,
+        pageState
+      );
+
+      continue;
+    }
+    
     const text = String(block.text ?? "").trim();
     if (!text) continue;
 
@@ -1594,12 +1788,11 @@ export const generarReportePDF = async (
     );
   }
 
-  const tablaDistribucionPrincipal = data.promediosPorNivel?.length ? 2 : 1;
-  let tablaDistribucionSubIndex = 1;
+  let tableCounter = data.promediosPorNivel?.length ? 2 : 1;
 
   y = drawSubsectionTitleWithTableGuard(
     pdf,
-    `Tabla ${tablaDistribucionPrincipal}. Distribución de estudiantes según rangos de calificación - General`,
+    `Tabla ${tableCounter}. Distribución de estudiantes según rangos de calificación - General`,
     y,
     10,
     images,
@@ -1614,13 +1807,15 @@ export const generarReportePDF = async (
     pageState
   );
 
+  tableCounter += 1;
+
   if (data.distribucionPorNivel?.length) {
     for (const grupo of sortByNivel(data.distribucionPorNivel)) {
       if (!grupo.distribucion.length) continue;
 
       y = drawSubsectionTitleWithTableGuard(
         pdf,
-        `Tabla ${tablaDistribucionPrincipal}.${tablaDistribucionSubIndex}. Distribución de estudiantes según rangos de calificación - ${grupo.nivel} Semestre`,
+        `Tabla ${tableCounter}. Distribución de estudiantes según rangos de calificación - ${grupo.nivel} Semestre`,
         y,
         10,
         images,
@@ -1635,7 +1830,7 @@ export const generarReportePDF = async (
         pageState
       );
 
-      tablaDistribucionSubIndex += 1;
+      tableCounter += 1;
     }
   }
 
@@ -1664,12 +1859,9 @@ export const generarReportePDF = async (
     }
   }
 
-  const tablaPreguntasPrincipal = data.promediosPorNivel?.length ? 3 : 2;
-  let tablaPreguntasSubIndex = 1;
-
   y = drawSubsectionTitleWithTableGuard(
     pdf,
-    `Tabla ${tablaPreguntasPrincipal}. Preguntas con mayor dificultad - General`,
+    `Tabla ${tableCounter}. Preguntas con mayor dificultad - General`,
     y,
     12,
     images,
@@ -1684,13 +1876,15 @@ export const generarReportePDF = async (
     pageState
   );
 
+  tableCounter += 1;
+
   if (data.preguntasDificilesPorNivel?.length) {
     for (const grupo of sortByNivel(data.preguntasDificilesPorNivel)) {
       if (!grupo.preguntas.length) continue;
 
       y = drawSubsectionTitleWithTableGuard(
         pdf,
-        `Tabla ${tablaPreguntasPrincipal}.${tablaPreguntasSubIndex}. Preguntas con mayor dificultad - ${grupo.nivel} Semestre`,
+        `Tabla ${tableCounter}. Preguntas con mayor dificultad - ${grupo.nivel} Semestre`,
         y,
         12,
         images,
@@ -1705,7 +1899,7 @@ export const generarReportePDF = async (
         pageState
       );
 
-      tablaPreguntasSubIndex += 1;
+      tableCounter += 1;
     }
   }
 

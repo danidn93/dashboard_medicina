@@ -56,6 +56,8 @@ type VersionRow = {
   total_intentos: number | null;
   created_at: string;
   texto_documento: string | null;
+  conclusiones: string | string[] | null;
+  recomendaciones: string | string[] | null;
 };
 
 type PreguntaRow = {
@@ -76,7 +78,8 @@ type ReportItemType =
   | "SUBTITULO"
   | "PARRAFO"
   | "ARTICULO"
-  | "VINETA";
+  | "VINETA"
+  | "TABLA";
 
 const REPORT_ITEM_TYPE_LABELS: Record<ReportItemType, string> = {
   TITULO: "Título",
@@ -84,6 +87,12 @@ const REPORT_ITEM_TYPE_LABELS: Record<ReportItemType, string> = {
   PARRAFO: "Párrafo",
   ARTICULO: "Artículo",
   VINETA: "Viñeta",
+  TABLA: "Tabla",
+};
+
+type ReportTableData = {
+  headers: string[];
+  rows: string[][];
 };
 
 type ReportItem = {
@@ -93,6 +102,7 @@ type ReportItem = {
   orden: number;
   titulo: string;
   contenido: string;
+  table_data?: ReportTableData;
   children?: ReportItem[];
 };
 
@@ -260,6 +270,82 @@ async function fetchAllRows<T>(
   }
 
   return all;
+}
+
+const DEFAULT_TABLE_DATA: ReportTableData = {
+  headers: ["Columna 1", "Columna 2"],
+  rows: [["", ""]],
+};
+
+function normalizeTableData(tableData?: ReportTableData): ReportTableData {
+  const headers =
+    tableData?.headers?.length
+      ? tableData.headers.map((h, index) => h ?? `Columna ${index + 1}`)
+      : [...DEFAULT_TABLE_DATA.headers];
+
+  const rows =
+    tableData?.rows?.length
+      ? tableData.rows.map((row) => {
+          const normalizedRow = [...row];
+
+          while (normalizedRow.length < headers.length) {
+            normalizedRow.push("");
+          }
+
+          return normalizedRow.slice(0, headers.length);
+        })
+      : [headers.map(() => "")];
+
+  return {
+    headers,
+    rows,
+  };
+}
+
+function normalizeReportItemForSave(item: ReportItem): ReportItem {
+  return {
+    ...item,
+    table_data:
+      item.tipo === "TABLA"
+        ? normalizeTableData(item.table_data)
+        : item.table_data,
+  };
+}
+
+function normalizeTextFromDb(value: unknown): string {
+  if (!value) return "";
+
+  if (Array.isArray(value)) {
+    return value.map(String).join("\n");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) {
+        return parsed.map(String).join("\n");
+      }
+    } catch {
+      return value;
+    }
+
+    return value;
+  }
+
+  return String(value);
+}
+
+function textToArray(value: string): string[] {
+  return String(value ?? "")
+    .split(/\n+/)
+    .map((line) =>
+      line
+        .replace(/^[-•]\s*/, "")
+        .replace(/^\d+[\.\)]\s*/, "")
+        .trim()
+    )
+    .filter(Boolean);
 }
 
 function buildTree(items: ReportItem[]): ReportItem[] {
@@ -994,7 +1080,8 @@ type PdfBlock =
   | { type: "paragraph"; text: string }
   | { type: "subtitle"; text: string }
   | { type: "bullet"; text: string }
-  | { type: "article"; text: string };
+  | { type: "article"; text: string }
+  | { type: "table"; text?: string; table_data: ReportTableData };
 
 type PdfSection = {
   title: string;
@@ -1036,6 +1123,17 @@ function flattenReportTreeToBlocks(nodes: ReportItem[]): PdfBlock[] {
       if (item.tipo === "VINETA") {
         if (contenido) blocks.push({ type: "bullet", text: contenido });
         if (item.children?.length) walk(item.children);
+      }
+
+      if (item.tipo === "TABLA") {
+        blocks.push({
+          type: "table",
+          text: titulo,
+          table_data: normalizeTableData(item.table_data),
+        });
+
+        if (item.children?.length) walk(item.children);
+        continue;
       }
     }
   };
@@ -1106,6 +1204,9 @@ export default function DashboardGerencial({
 
   const [reportItems, setReportItems] = useState<ReportItem[]>([]);
 
+  const [conclusionesTexto, setConclusionesTexto] = useState("");
+  const [recomendacionesTexto, setRecomendacionesTexto] = useState("");
+
   const [addRootOpen, setAddRootOpen] = useState(false);
   const [newRootType, setNewRootType] = useState<ReportItemType>("TITULO");
   const [newRootQuantity, setNewRootQuantity] = useState(1);
@@ -1131,8 +1232,13 @@ export default function DashboardGerencial({
       tipo,
       parent_id: parentId,
       orden: maxOrden + 1 + i,
-      titulo: "",
+      titulo: tipo === "TABLA" ? "Nueva tabla" : "",
       contenido: "",
+      ...(tipo === "TABLA"
+        ? {
+            table_data: normalizeTableData(),
+          }
+        : {}),
     }));
 
     setReportItems((prev) => [...prev, ...nuevos]);
@@ -1153,8 +1259,13 @@ export default function DashboardGerencial({
       tipo: newRootType,
       parent_id: null,
       orden: maxOrden + 1 + i,
-      titulo: "",
+      titulo: newRootType === "TABLA" ? "Nueva tabla" : "",
       contenido: "",
+      ...(newRootType === "TABLA"
+        ? {
+            table_data: normalizeTableData(),
+          }
+        : {}),
     }));
 
     setReportItems((prev) => [...prev, ...nuevos]);
@@ -1246,12 +1357,18 @@ export default function DashboardGerencial({
   const saveTextoDocumento = async (payload?: ReportItemsPayload) => {
     if (!versionId) return;
 
-    const dataToSave: ReportItemsPayload = payload ?? { items: reportItems };
+    const itemsToSave = payload?.items ?? reportItems;
+
+    const dataToSave: ReportItemsPayload = {
+      items: itemsToSave.map(normalizeReportItemForSave),
+    };
 
     const { error } = await supabase
       .from("exam_dataset_versions")
       .update({
         texto_documento: JSON.stringify(dataToSave),
+        conclusiones: JSON.stringify(textToArray(conclusionesTexto)),
+        recomendaciones: JSON.stringify(textToArray(recomendacionesTexto)),
       })
       .eq("id", versionId);
 
@@ -1283,27 +1400,38 @@ export default function DashboardGerencial({
         const { data: versionData, error: versionError } = await supabase
           .from("exam_dataset_versions")
           .select(
-            "id, version_number, file_name, total_preguntas, total_intentos, created_at, texto_documento"
+            "id, version_number, file_name, total_preguntas, total_intentos, created_at, texto_documento, conclusiones, recomendaciones"
           )
           .eq("id", versionId)
           .single();
 
         if (versionError) throw versionError;
-        setVersion(versionData);
+        setVersion(versionData as VersionRow);
+        setConclusionesTexto(normalizeTextFromDb(versionData?.conclusiones));
+        setRecomendacionesTexto(normalizeTextFromDb(versionData?.recomendaciones));
 
         if (versionData?.texto_documento) {
           try {
             const parsed = JSON.parse(versionData.texto_documento) as Partial<ReportItemsPayload>;
 
             if (Array.isArray(parsed?.items)) {
-              const normalized: ReportItem[] = parsed.items.map((item, index) => ({
-                id: item.id || `${Date.now()}-${index}`,
-                tipo: item.tipo as ReportItemType,
-                parent_id: item.parent_id ?? null,
-                orden: typeof item.orden === "number" ? item.orden : index + 1,
-                titulo: item.titulo ?? "",
-                contenido: item.contenido ?? "",
-              }));
+              const normalized: ReportItem[] = parsed.items.map((item, index) => {
+                const tipo = item.tipo as ReportItemType;
+
+                return {
+                  id: item.id || `${Date.now()}-${index}`,
+                  tipo,
+                  parent_id: item.parent_id ?? null,
+                  orden: typeof item.orden === "number" ? item.orden : index + 1,
+                  titulo: item.titulo ?? "",
+                  contenido: item.contenido ?? "",
+                  ...(tipo === "TABLA"
+                    ? {
+                        table_data: normalizeTableData(item.table_data),
+                      }
+                    : {}),
+                };
+              });
 
               setReportItems(normalized);
             } else {
@@ -2226,6 +2354,18 @@ ${topCriticos
     );
   }
 
+  const splitTextToBullets = (value: string): string[] => {
+    return String(value ?? "")
+      .split(/\n+/)
+      .map((line) =>
+        line
+          .replace(/^[-•]\s*/, "")
+          .replace(/^\d+[\.\)]\s*/, "")
+          .trim()
+      )
+      .filter(Boolean);
+  };
+
   const handleGeneratePdf = async () => {
     try {
       if (!version || !dashboardData) return;
@@ -2260,10 +2400,22 @@ ${topCriticos
       const pdfSections = treeToPdfSections(reportTree);
       await saveTextoDocumento({ items: reportItems });
 
-      const {
-        conclusiones,
-        recomendaciones,
-      } = await obtenerConclusionesYRecomendaciones(versionId!);
+      let conclusiones = textToArray(conclusionesTexto);
+      let recomendaciones = textToArray(recomendacionesTexto);
+
+      if (!conclusiones.length || !recomendaciones.length) {
+        const generated = await obtenerConclusionesYRecomendaciones(versionId!);
+
+        if (!conclusiones.length) {
+          conclusiones = generated.conclusiones;
+          setConclusionesTexto(generated.conclusiones.join("\n"));
+        }
+
+        if (!recomendaciones.length) {
+          recomendaciones = generated.recomendaciones;
+          setRecomendacionesTexto(generated.recomendaciones.join("\n"));
+        }
+      }
 
       const nivelesParaPdf = nivelesDisponibles;
 
@@ -2829,6 +2981,37 @@ ${topCriticos
             </Card>
 
             <Card className="shadow-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  Conclusiones y recomendaciones
+                </CardTitle>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Conclusiones</Label>
+                  <textarea
+                    value={conclusionesTexto}
+                    onChange={(e) => setConclusionesTexto(e.target.value)}
+                    placeholder="Escriba las conclusiones. Puede separar cada conclusión en una línea."
+                    className="min-h-[140px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Recomendaciones</Label>
+                  <textarea
+                    value={recomendacionesTexto}
+                    onChange={(e) => setRecomendacionesTexto(e.target.value)}
+                    placeholder="Escriba las recomendaciones. Puede separar cada recomendación en una línea."
+                    className="min-h-[140px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-card">
               <CardHeader className="pb-3 flex flex-row items-center justify-between">
                 <CardTitle className="text-base flex items-center gap-2">
                   <BookOpen className="h-5 w-5 text-primary" />
@@ -2926,6 +3109,7 @@ ${topCriticos
                 <SelectItem value="ARTICULO">Artículo</SelectItem>
                 <SelectItem value="VINETA">Viñeta</SelectItem>
                 <SelectItem value="PARRAFO">Párrafo</SelectItem>
+                <SelectItem value="TABLA">Tabla</SelectItem>
               </SelectContent>
             </Select>
 

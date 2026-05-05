@@ -23,7 +23,13 @@ export type ReportItemType =
   | "SUBTITULO"
   | "PARRAFO"
   | "ARTICULO"
-  | "VINETA";
+  | "VINETA"
+  | "TABLA";
+
+export type ReportTableData = {
+  headers: string[];
+  rows: string[][];
+};
 
 export type ReportItem = {
   id: string;
@@ -32,6 +38,7 @@ export type ReportItem = {
   orden: number;
   titulo: string;
   contenido: string;
+  table_data?: ReportTableData;
   children?: ReportItem[];
 };
 
@@ -41,12 +48,51 @@ const REPORT_ITEM_TYPE_LABELS: Record<ReportItemType, string> = {
   PARRAFO: "Párrafo",
   ARTICULO: "Artículo",
   VINETA: "Viñeta",
+  TABLA: "Tabla",
+};
+
+const DEFAULT_TABLE_DATA: ReportTableData = {
+  headers: ["Columna 1", "Columna 2"],
+  rows: [["", ""]],
+};
+
+const normalizeTableData = (
+  tableData?: ReportTableData
+): ReportTableData => {
+  const headers =
+    tableData?.headers?.length
+      ? tableData.headers.map((h, i) => h ?? `Columna ${i + 1}`)
+      : [...DEFAULT_TABLE_DATA.headers];
+
+  const rows =
+    tableData?.rows?.length
+      ? tableData.rows.map((row) => {
+          const normalizedRow = [...row];
+
+          while (normalizedRow.length < headers.length) {
+            normalizedRow.push("");
+          }
+
+          return normalizedRow.slice(0, headers.length);
+        })
+      : [headers.map(() => "")];
+
+  return {
+    headers,
+    rows,
+  };
 };
 
 interface Props {
   item: ReportItem;
   depth: number;
   readOnly?: boolean;
+
+  conclusiones?: string;
+  recomendaciones?: string;
+  onUpdateConclusiones?: (value: string) => void;
+  onUpdateRecomendaciones?: (value: string) => void;
+
   onAddChild: (
     parentId: string,
     tipo: ReportItemType,
@@ -66,6 +112,10 @@ export function ReportTreeItemExact({
   item,
   depth,
   readOnly = false,
+  conclusiones,
+  recomendaciones,
+  onUpdateConclusiones,
+  onUpdateRecomendaciones,
   onAddChild,
   onUpdate,
   onDelete,
@@ -75,19 +125,35 @@ export function ReportTreeItemExact({
   const [expanded, setExpanded] = useState(true);
   const [addType, setAddType] = useState<ReportItemType>("SUBTITULO");
   const [addQuantity, setAddQuantity] = useState(1);
-  const [dragOver, setDragOver] = useState<"before" | "after" | "inside" | null>(null);
+  const [dragOver, setDragOver] = useState<
+    "before" | "after" | "inside" | null
+  >(null);
 
   const hasChildren = !!item.children?.length;
+  const isTableNode = item.tipo === "TABLA";
 
   const isTitleNode = item.tipo === "TITULO" || item.tipo === "SUBTITULO";
+
   const isTextNode =
     item.tipo === "PARRAFO" ||
     item.tipo === "ARTICULO" ||
     item.tipo === "VINETA";
 
+  const tableData = isTableNode
+    ? normalizeTableData(item.table_data)
+    : undefined;
+
   const summary = isTitleNode
     ? item.titulo?.trim() || REPORT_ITEM_TYPE_LABELS[item.tipo]
+    : isTableNode
+    ? item.titulo?.trim() || "Tabla personalizada"
     : item.contenido?.trim() || REPORT_ITEM_TYPE_LABELS[item.tipo];
+
+  const updateTableData = (nextTableData: ReportTableData) => {
+    onUpdate(item.id, {
+      table_data: normalizeTableData(nextTableData),
+    });
+  };
 
   const handleDrop = (
     e: React.DragEvent<HTMLDivElement>,
@@ -97,6 +163,7 @@ export function ReportTreeItemExact({
     e.stopPropagation();
 
     const draggedId = e.dataTransfer.getData("text/plain");
+
     if (!draggedId || draggedId === item.id) {
       setDragOver(null);
       return;
@@ -112,7 +179,10 @@ export function ReportTreeItemExact({
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dragOver !== position) setDragOver(position);
+
+    if (dragOver !== position) {
+      setDragOver(position);
+    }
   };
 
   const clearDragState = () => {
@@ -121,6 +191,35 @@ export function ReportTreeItemExact({
 
   return (
     <div className="space-y-1 min-w-0" style={{ marginLeft: depth * 20 }}>
+      {depth === 0 && (
+        <div className="mb-4 space-y-4 rounded-xl border bg-muted/20 p-4">
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">
+              Conclusiones
+            </label>
+            <Textarea
+              value={conclusiones ?? ""}
+              disabled={readOnly}
+              onChange={(e) => onUpdateConclusiones?.(e.target.value)}
+              placeholder="Escriba las conclusiones del informe. Puede separar cada conclusión en una línea."
+              className="mt-1 min-h-[130px] resize-y whitespace-pre-wrap break-words"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">
+              Recomendaciones
+            </label>
+            <Textarea
+              value={recomendaciones ?? ""}
+              disabled={readOnly}
+              onChange={(e) => onUpdateRecomendaciones?.(e.target.value)}
+              placeholder="Escriba las recomendaciones del informe. Puede separar cada recomendación en una línea."
+              className="mt-1 min-h-[130px] resize-y whitespace-pre-wrap break-words"
+            />
+          </div>
+        </div>
+      )}
       {!readOnly && (
         <div
           onDragOver={(e) => handleDragOverZone(e, "before")}
@@ -139,6 +238,7 @@ export function ReportTreeItemExact({
         draggable={!readOnly}
         onDragStart={(e) => {
           if (readOnly) return;
+
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("text/plain", item.id);
         }}
@@ -174,7 +274,6 @@ export function ReportTreeItemExact({
               {REPORT_ITEM_TYPE_LABELS[item.tipo]}
             </div>
 
-            {/* Ya no se va hacia la derecha: ahora rompe líneas */}
             <div className="text-sm font-medium whitespace-pre-wrap break-words overflow-hidden">
               {summary}
             </div>
@@ -212,10 +311,15 @@ export function ReportTreeItemExact({
                 <label className="text-sm text-muted-foreground">
                   {item.tipo === "TITULO" ? "Título" : "Subtítulo"}
                 </label>
+
                 <Input
                   value={item.titulo ?? ""}
                   disabled={readOnly}
-                  onChange={(e) => onUpdate(item.id, { titulo: e.target.value })}
+                  onChange={(e) =>
+                    onUpdate(item.id, {
+                      titulo: e.target.value,
+                    })
+                  }
                   placeholder={
                     item.tipo === "TITULO"
                       ? "Escriba el título"
@@ -235,10 +339,15 @@ export function ReportTreeItemExact({
                     ? "Viñeta"
                     : "Artículo"}
                 </label>
+
                 <Textarea
                   value={item.contenido ?? ""}
                   disabled={readOnly}
-                  onChange={(e) => onUpdate(item.id, { contenido: e.target.value })}
+                  onChange={(e) =>
+                    onUpdate(item.id, {
+                      contenido: e.target.value,
+                    })
+                  }
                   placeholder={
                     item.tipo === "PARRAFO"
                       ? "Escriba el párrafo"
@@ -251,12 +360,170 @@ export function ReportTreeItemExact({
               </div>
             )}
 
+            {isTableNode && tableData && (
+              <div className="space-y-3 min-w-0">
+                <div>
+                  <label className="text-sm text-muted-foreground">
+                    Título de la tabla
+                  </label>
+
+                  <Input
+                    value={item.titulo ?? ""}
+                    disabled={readOnly}
+                    onChange={(e) =>
+                      onUpdate(item.id, {
+                        titulo: e.target.value,
+                        table_data: tableData,
+                      })
+                    }
+                    placeholder="Ejemplo: Tabla de resultados"
+                    className="mt-1"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={readOnly}
+                    onClick={() => {
+                      const nextHeaders = [
+                        ...tableData.headers,
+                        `Columna ${tableData.headers.length + 1}`,
+                      ];
+
+                      const nextRows = tableData.rows.map((row) => [
+                        ...row,
+                        "",
+                      ]);
+
+                      updateTableData({
+                        headers: nextHeaders,
+                        rows: nextRows,
+                      });
+                    }}
+                  >
+                    Agregar columna
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={readOnly}
+                    onClick={() => {
+                      updateTableData({
+                        headers: tableData.headers,
+                        rows: [
+                          ...tableData.rows,
+                          tableData.headers.map(() => ""),
+                        ],
+                      });
+                    }}
+                  >
+                    Agregar fila
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={readOnly || tableData.headers.length <= 1}
+                    onClick={() => {
+                      updateTableData({
+                        headers: tableData.headers.slice(0, -1),
+                        rows: tableData.rows.map((row) => row.slice(0, -1)),
+                      });
+                    }}
+                  >
+                    Eliminar columna
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={readOnly || tableData.rows.length <= 1}
+                    onClick={() => {
+                      updateTableData({
+                        headers: tableData.headers,
+                        rows: tableData.rows.slice(0, -1),
+                      });
+                    }}
+                  >
+                    Eliminar fila
+                  </Button>
+                </div>
+
+                <div className="overflow-x-auto border rounded-md">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr>
+                        {tableData.headers.map((header, colIndex) => (
+                          <th
+                            key={colIndex}
+                            className="border px-2 py-1 min-w-[140px]"
+                          >
+                            <Input
+                              value={header}
+                              disabled={readOnly}
+                              onChange={(e) => {
+                                const headers = [...tableData.headers];
+                                headers[colIndex] = e.target.value;
+
+                                updateTableData({
+                                  headers,
+                                  rows: tableData.rows,
+                                });
+                              }}
+                            />
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {tableData.rows.map((row, rowIndex) => (
+                        <tr key={rowIndex}>
+                          {tableData.headers.map((_, colIndex) => (
+                            <td
+                              key={colIndex}
+                              className="border px-2 py-1 min-w-[140px]"
+                            >
+                              <Input
+                                value={row[colIndex] ?? ""}
+                                disabled={readOnly}
+                                onChange={(e) => {
+                                  const rows = tableData.rows.map((r) => [
+                                    ...r,
+                                  ]);
+
+                                  rows[rowIndex][colIndex] = e.target.value;
+
+                                  updateTableData({
+                                    headers: tableData.headers,
+                                    rows,
+                                  });
+                                }}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {!readOnly && (
               <div className="flex flex-wrap items-end gap-2 pt-1">
                 <div className="w-[180px]">
                   <label className="text-sm text-muted-foreground">
                     Agregar hijo
                   </label>
+
                   <Select
                     value={addType}
                     onValueChange={(v) => setAddType(v as ReportItemType)}
@@ -264,11 +531,13 @@ export function ReportTreeItemExact({
                     <SelectTrigger className="mt-1">
                       <SelectValue />
                     </SelectTrigger>
+
                     <SelectContent>
                       <SelectItem value="SUBTITULO">Subtítulo</SelectItem>
                       <SelectItem value="PARRAFO">Párrafo</SelectItem>
                       <SelectItem value="ARTICULO">Artículo</SelectItem>
                       <SelectItem value="VINETA">Viñeta</SelectItem>
+                      <SelectItem value="TABLA">Tabla</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -277,6 +546,7 @@ export function ReportTreeItemExact({
                   <label className="text-sm text-muted-foreground">
                     Cantidad
                   </label>
+
                   <Input
                     type="number"
                     min={1}
@@ -284,7 +554,10 @@ export function ReportTreeItemExact({
                     value={addQuantity}
                     onChange={(e) =>
                       setAddQuantity(
-                        Math.max(1, Math.min(50, parseInt(e.target.value) || 1))
+                        Math.max(
+                          1,
+                          Math.min(50, parseInt(e.target.value) || 1)
+                        )
                       )
                     }
                     className="mt-1 w-24 h-10"
@@ -307,7 +580,6 @@ export function ReportTreeItemExact({
         )}
       </div>
 
-      {/* Si el padre está minimizado, los hijos no se renderizan */}
       {expanded && hasChildren && (
         <div className="space-y-1 min-w-0">
           {item.children!.map((child) => (
@@ -316,6 +588,10 @@ export function ReportTreeItemExact({
               item={child}
               depth={depth + 1}
               readOnly={readOnly}
+              conclusiones={conclusiones}
+              recomendaciones={recomendaciones}
+              onUpdateConclusiones={onUpdateConclusiones}
+              onUpdateRecomendaciones={onUpdateRecomendaciones}
               onAddChild={onAddChild}
               onUpdate={onUpdate}
               onDelete={onDelete}

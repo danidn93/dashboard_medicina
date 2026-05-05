@@ -191,35 +191,6 @@ export function ReportTreeItemExact({
 
   return (
     <div className="space-y-1 min-w-0" style={{ marginLeft: depth * 20 }}>
-      {depth === 0 && (
-        <div className="mb-4 space-y-4 rounded-xl border bg-muted/20 p-4">
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">
-              Conclusiones
-            </label>
-            <Textarea
-              value={conclusiones ?? ""}
-              disabled={readOnly}
-              onChange={(e) => onUpdateConclusiones?.(e.target.value)}
-              placeholder="Escriba las conclusiones del informe. Puede separar cada conclusión en una línea."
-              className="mt-1 min-h-[130px] resize-y whitespace-pre-wrap break-words"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">
-              Recomendaciones
-            </label>
-            <Textarea
-              value={recomendaciones ?? ""}
-              disabled={readOnly}
-              onChange={(e) => onUpdateRecomendaciones?.(e.target.value)}
-              placeholder="Escriba las recomendaciones del informe. Puede separar cada recomendación en una línea."
-              className="mt-1 min-h-[130px] resize-y whitespace-pre-wrap break-words"
-            />
-          </div>
-        </div>
-      )}
       {!readOnly && (
         <div
           onDragOver={(e) => handleDragOverZone(e, "before")}

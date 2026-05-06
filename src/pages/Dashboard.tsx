@@ -2544,10 +2544,14 @@ ${topCriticos
             .map((i) => Number(i.calificacion_total))
             .filter((n) => Number.isFinite(n));
 
+          const aprobados = calificaciones.filter((nota) => nota >= PASS_SCORE).length;
+
           return {
             nivel,
             promedio: average(calificaciones),
             totalEstudiantes: calificaciones.length,
+            aprobados,
+            porcentajeAprobados: percent(aprobados, calificaciones.length),
           };
         })
         .filter((item) => item.totalEstudiantes > 0);

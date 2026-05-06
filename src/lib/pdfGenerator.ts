@@ -873,7 +873,8 @@ const drawPromediosPorNivelBarChart = (
   data: PromedioPorNivelData[],
   y: number,
   images: ReporteImages,
-  pageState: PageState
+  pageState: PageState,
+  chartNumber: number
 ) => {
   const items = [...data]
     .filter((item) => Number.isFinite(item.promedio))
@@ -889,7 +890,7 @@ const drawPromediosPorNivelBarChart = (
 
   return drawBarChart(
     pdf,
-    "Gráfico 1. Promedio por semestre en orden descendente",
+    `Gráfico ${chartNumber}. Promedio por semestre en orden descendente`,
     items,
     y,
     images,
@@ -1212,7 +1213,7 @@ const drawSignaturesNearEnd = (
   pageState: PageState
 ) => {
   const minGapAfterContent = 35;
-  const signaturesHeight = 22;
+  const signaturesHeight = 26;
 
   y += minGapAfterContent;
 
@@ -1221,43 +1222,30 @@ const drawSignaturesNearEnd = (
     y += 25;
   }
 
-  const margin = 18;
+  const margin = 12;
   const contentWidth = PAGE_WIDTH - 2 * margin;
-  const columnWidth = contentWidth / 3;
+  const columnWidth = contentWidth / 4;
 
   pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(10);
+  pdf.setFontSize(9);
   pdf.setTextColor(3, 46, 69);
 
-  const textY = y;
-
-  const firma1Text = pdf.splitTextToSize(
+  const firmas = [
     "Asistente de Evaluación y Acreditación Institucional",
-    columnWidth - 8
-  );
-  pdf.text(firma1Text, margin + columnWidth / 2, textY, { align: "center" });
-
-  const firma2Text = pdf.splitTextToSize(
     "Analista de Evaluación y Acreditación Institucional",
-    columnWidth - 8
-  );
-  pdf.text(
-    firma2Text,
-    margin + columnWidth + columnWidth / 2,
-    textY,
-    { align: "center" }
-  );
+    "Experto de Evaluación y Acreditación Institucional",
+    "Directora de Aseguramiento de la Calidad",
+  ];
 
-  const firma3Text = pdf.splitTextToSize(
-    "Director de Aseguramiento de la Calidad (E)",
-    columnWidth - 8
-  );
-  pdf.text(
-    firma3Text,
-    margin + 2 * columnWidth + columnWidth / 2,
-    textY,
-    { align: "center" }
-  );
+  firmas.forEach((firma, index) => {
+    const firmaText = pdf.splitTextToSize(firma, columnWidth - 6);
+    pdf.text(
+      firmaText,
+      margin + index * columnWidth + columnWidth / 2,
+      y,
+      { align: "center" }
+    );
+  });
 
   return y + signaturesHeight;
 };
@@ -1486,6 +1474,7 @@ const drawDynamicSection = (
   pageState: PageState,
   options?: {
     drawTitle?: boolean;
+    tableCounterRef?: { current: number };
   }
 ) => {
   if (!section) return y;
@@ -1513,14 +1502,24 @@ const drawDynamicSection = (
     if (block.type === "table") {
       flushBullets();
 
+      const rawTitle = String(block.text ?? "").trim();
+
+      const numberedTableTitle = options?.tableCounterRef
+        ? `Tabla ${options.tableCounterRef.current}. ${rawTitle || "Tabla personalizada"}`
+        : rawTitle;
+
       y = drawCustomTable(
         pdf,
-        String(block.text ?? "").trim(),
+        numberedTableTitle,
         block.table_data,
         y,
         images,
         pageState
       );
+
+      if (options?.tableCounterRef) {
+        options.tableCounterRef.current += 1;
+      }
 
       continue;
     }
@@ -1687,6 +1686,8 @@ export const generarReportePDF = async (
 
   let y = 50;
 
+  const tableCounterRef = { current: 1 };
+
   pdf.setTextColor(...COLORES.azulUnemi);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(24);
@@ -1722,6 +1723,7 @@ export const generarReportePDF = async (
     y = Math.max(TOP_Y, (BOTTOM_Y + TOP_Y - introHeight) / 2);
     y = drawDynamicSection(pdf, introSection, y, images, pageState, {
       drawTitle: true,
+      tableCounterRef,
     });
   }
 
@@ -1734,6 +1736,7 @@ export const generarReportePDF = async (
     remainingSections.forEach((section) => {
       y = drawDynamicSection(pdf, section, y, images, pageState, {
         drawTitle: true,
+        tableCounterRef,
       });
     });
   } else if (!introSection) {
@@ -1761,10 +1764,14 @@ export const generarReportePDF = async (
     pageState
   );
 
+  let tableCounter = tableCounterRef.current;
+
+  let chartCounter = 1;
+
   if (data.promediosPorNivel?.length) {
     y = drawSubsectionTitleWithTableGuard(
       pdf,
-      "Tabla 1. Promedio general y promedio por semestre",
+      `Tabla ${tableCounter}. Promedio general y promedio por semestre`,
       y,
       10,
       images,
@@ -1779,16 +1786,20 @@ export const generarReportePDF = async (
       pageState
     );
 
+    tableCounter += 1;
+    tableCounterRef.current = tableCounter;
+    
     y = drawPromediosPorNivelBarChart(
       pdf,
       data.promediosPorNivel,
       y,
       images,
-      pageState
+      pageState,
+      chartCounter
     );
-  }
 
-  let tableCounter = data.promediosPorNivel?.length ? 2 : 1;
+    chartCounter += 1;
+  }
 
   y = drawSubsectionTitleWithTableGuard(
     pdf,
@@ -1836,12 +1847,14 @@ export const generarReportePDF = async (
 
   y = drawBarChart(
     pdf,
-    "Rendimiento por componente - General",
+    `Gráfico ${chartCounter}. Rendimiento por componente - General`,
     data.componentes,
     y,
     images,
     pageState
   );
+
+  chartCounter += 1;
 
   if (data.componentesPorNivel?.length) {
     for (const grupo of sortByNivel(data.componentesPorNivel)) {
@@ -1849,13 +1862,15 @@ export const generarReportePDF = async (
 
       y = drawBarChart(
         pdf,
-        `Rendimiento por componente - ${grupo.nivel} Semestre`,
+        `Gráfico ${chartCounter}. Rendimiento por componente - ${grupo.nivel} Semestre`,
         grupo.componentes,
         y,
         images,
         pageState,
         { compact: true }
       );
+
+      chartCounter += 1;
     }
   }
 

@@ -1207,6 +1207,13 @@ export default function DashboardGerencial({
   const [conclusionesTexto, setConclusionesTexto] = useState("");
   const [recomendacionesTexto, setRecomendacionesTexto] = useState("");
 
+  type FirmaPdf = {
+    nombre: string;
+    cargo: string;
+  };
+
+  const [firmasPdf, setFirmasPdf] = useState<FirmaPdf[]>([]);
+
   const [addRootOpen, setAddRootOpen] = useState(false);
   const [newRootType, setNewRootType] = useState<ReportItemType>("TITULO");
   const [newRootQuantity, setNewRootQuantity] = useState(1);
@@ -1547,6 +1554,26 @@ export default function DashboardGerencial({
 
     loadDashboard();
   }, [versionId]);
+
+  const updateFirmaPdf = (
+    index: number,
+    field: keyof FirmaPdf,
+    value: string
+  ) => {
+    setFirmasPdf((prev) =>
+      prev.map((firma, i) =>
+        i === index ? { ...firma, [field]: value } : firma
+      )
+    );
+  };
+
+  const addFirmaPdf = () => {
+    setFirmasPdf((prev) => [...prev, { nombre: "", cargo: "" }]);
+  };
+
+  const removeFirmaPdf = (index: number) => {
+    setFirmasPdf((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const preguntasMap = useMemo(
     () => new Map(preguntas.map((p) => [p.id, p])),
@@ -2602,6 +2629,10 @@ ${topCriticos
           antecedentesPersonalizados: pdfSections.antecedentesPersonalizados,
           motivacionJuridicaPersonalizada: pdfSections.motivacionJuridicaPersonalizada,
           metodologiaPersonalizada: pdfSections.metodologiaPersonalizada,
+
+          firmas: firmasPdf.filter(
+            (firma) => firma.nombre.trim() || firma.cargo.trim()
+          ),
         },
         assets
       );
@@ -3062,6 +3093,66 @@ ${topCriticos
               </CardContent>
             </Card>
           </div>
+
+          <Card className="border-slate-200">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-[#002E45]">
+                  Firmas del informe
+                </CardTitle>
+
+                <Button variant="outline" size="sm" onClick={addFirmaPdf}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Agregar firma
+                </Button>
+              </div>
+            </CardHeader>
+
+            <CardContent className="space-y-3">
+              {firmasPdf.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No se han agregado firmas. El informe se generará sin bloque de firmas.
+                </p>
+              ) : (
+                firmasPdf.map((firma, index) => (
+                  <div
+                    key={index}
+                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end rounded-xl border bg-white p-3"
+                  >
+                    <div className="space-y-1">
+                      <Label>Nombre</Label>
+                      <Input
+                        value={firma.nombre}
+                        placeholder="Ej. Mgs. Nombre Apellido"
+                        onChange={(e) =>
+                          updateFirmaPdf(index, "nombre", e.target.value)
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label>Cargo</Label>
+                      <Input
+                        value={firma.cargo}
+                        placeholder="Ej. Cargo institucional"
+                        onChange={(e) =>
+                          updateFirmaPdf(index, "cargo", e.target.value)
+                        }
+                      />
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeFirmaPdf(index)}
+                    >
+                      Eliminar
+                    </Button>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
 
           <DialogFooter className="gap-2">
             <Button

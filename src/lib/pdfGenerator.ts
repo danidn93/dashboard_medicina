@@ -41,6 +41,11 @@ export type ReportTableData = {
   rows: string[][];
 };
 
+export type ReportSignature = {
+  nombre: string;
+  cargo: string;
+};
+
 export type ReportSectionBlock =
   | {
       type: "paragraph";
@@ -96,6 +101,8 @@ export interface ReporteData {
   preguntasDificilesPorNivel?: PreguntasDificilesPorNivelData[];
 
   promediosPorNivel?: PromedioPorNivelData[];
+
+  firmas?: ReportSignature[];
 }
 
 export interface ReporteImages {
@@ -1210,10 +1217,29 @@ const drawSignaturesNearEnd = (
   pdf: jsPDF,
   y: number,
   images: ReporteImages,
-  pageState: PageState
+  pageState: PageState,
+  firmasParam?: ReportSignature[]
 ) => {
+  const firmas = (firmasParam ?? []).filter(
+    (firma) => firma.nombre.trim() || firma.cargo.trim()
+  );
+
+  if (!firmas.length) return y;
+
   const minGapAfterContent = 35;
-  const signaturesHeight = 26;
+  const rowHeight = 35;
+  const maxColumns = 4;
+
+  const totalRows = Math.ceil(firmas.length / maxColumns);
+  const signaturesHeight = totalRows * rowHeight;
+
+  const margin = 6;
+  const gap = 4;
+
+  const usableWidth =
+    PAGE_WIDTH - margin * 2 - gap * (maxColumns - 1);
+
+  const columnWidth = usableWidth / maxColumns;
 
   y += minGapAfterContent;
 
@@ -1222,29 +1248,55 @@ const drawSignaturesNearEnd = (
     y += 25;
   }
 
-  const margin = 12;
-  const contentWidth = PAGE_WIDTH - 2 * margin;
-  const columnWidth = contentWidth / 4;
-
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(9);
   pdf.setTextColor(3, 46, 69);
 
-  const firmas = [
-    "Asistente de Evaluación y Acreditación Institucional",
-    "Analista de Evaluación y Acreditación Institucional",
-    "Experto de Evaluación y Acreditación Institucional",
-    "Directora de Aseguramiento de la Calidad",
-  ];
-
   firmas.forEach((firma, index) => {
-    const firmaText = pdf.splitTextToSize(firma, columnWidth - 6);
-    pdf.text(
-      firmaText,
-      margin + index * columnWidth + columnWidth / 2,
-      y,
-      { align: "center" }
-    );
+    const row = Math.floor(index / maxColumns);
+    const indexInRow = index % maxColumns;
+
+    const remainingInThisRow = firmas.length - row * maxColumns;
+    const columnsInThisRow = Math.min(maxColumns, remainingInThisRow);
+
+    const rowWidth =
+      columnWidth * columnsInThisRow +
+      gap * (columnsInThisRow - 1);
+    const rowStartX = (PAGE_WIDTH - rowWidth) / 2;
+
+    const x =
+      rowStartX +
+      indexInRow * (columnWidth + gap);
+    const centerX = x + columnWidth / 2;
+    const currentY = y + row * rowHeight;
+
+    pdf.setDrawColor(3, 46, 69);
+    pdf.line(x + 8, currentY, x + columnWidth - 8, currentY);
+
+    if (firma.nombre.trim()) {
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9);
+
+      pdf.text(
+        pdf.splitTextToSize(firma.nombre.trim(), columnWidth - 2),
+        centerX,
+        currentY + 6,
+        { align: "center" }
+      );
+    }
+
+    if (firma.cargo.trim()) {
+      const cargoFontSize = columnsInThisRow === 4 ? 7.8 : 8.5;
+      const cargoMaxWidth = columnsInThisRow === 4 ? columnWidth - 2 : columnWidth - 10;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(cargoFontSize);
+
+      pdf.text(
+        pdf.splitTextToSize(firma.cargo.trim(), cargoMaxWidth),
+        centerX,
+        currentY + (firma.nombre.trim() ? 13 : 7),
+        { align: "center" }
+      );
+    }
   });
 
   return y + signaturesHeight;
@@ -1969,7 +2021,7 @@ export const generarReportePDF = async (
     pageState
   );
 
-  y = drawSignaturesNearEnd(pdf, y, images, pageState);
+  y = drawSignaturesNearEnd(pdf, y, images, pageState, data.firmas);
 
   const totalPages = pdf.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
